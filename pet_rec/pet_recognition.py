@@ -8,7 +8,7 @@ import faiss
 import json
 import os
 import sys
-import glob as glob_module  # 避免命名冲突
+import glob as glob_module
 
 def get_data_path():
     script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -16,76 +16,110 @@ def get_data_path():
 
 DATA_PATH = get_data_path()
 
+
+# ==================== 特征提取器 ====================
+
 class PetFeatureExtractor(nn.Module):
-    def __init__(self, pretrained=True):
-        super(PetFeatureExtractor, self).__init__()
-        from torchvision.models import ResNet50_Weights
-        # 建议使用 ResNet101 或 EfficientNet 以获得更好效果，这里保持 ResNet50 兼容
-        resnet = models.resnet50(weights=ResNet50_Weights.DEFAULT)
-        self.feature_extractor = nn.Sequential(*list(resnet.children())[:-1])
-        self.feature_dim = 2048
-        
-        # 【关键修正】推理Transform必须是确定性的，不能包含 RandomFlip 或 ColorJitter
-        self.infer_transform = transforms.Compose([
-            transforms.Resize((256, 256)),
-            transforms.CenterCrop((224, 224)),
+    """EfficientNet-B4 特征提取器
+
+    相比 ResNet50 的优势：
+    - ImageNet Top-1 准确率更高 (83.0% vs 76.1%)
+    - MBConv 架构在细粒度特征提取上优于传统卷积
+    - 1792 维特征向量，信息更丰富
+    """
+
+    def __init__(self):
+        super().__init__()
+        from torchvision.models import EfficientNet_B4_Weights
+        net = models.efficientnet_b4(weights=EfficientNet_B4_Weights.DEFAULT)
+        # 去掉最后的分类头，保留特征提取部分
+        self.features = nn.Sequential(*list(net.children())[:-1])
+        self.feature_dim = 1792
+
+        # EfficientNet-B4 标准预处理
+        self.transform = transforms.Compose([
+            transforms.Resize(380, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(380),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
     def forward(self, x):
-        return self.feature_extractor(x).squeeze(-1).squeeze(-1)
+        # 输出 shape: (batch, 1792, 1, 1) → squeeze → (batch, 1792)
+        return self.features(x).squeeze(-1).squeeze(-1)
+
+
+# ==================== 多裁剪 TTA ====================
+
+def get_five_crops(img, crop_size=380):
+    """5 裁剪策略：中心 + 四角
+
+    先将图片短边 resize 到 crop_size，长边等比放大，
+    然后从 5 个位置各裁剪出 crop_size×crop_size 的区域。
+    """
+    w, h = img.size
+    scale = crop_size / min(w, h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    img = img.resize((new_w, new_h), Image.BICUBIC)
+
+    # 如果长边刚好等于 crop_size，只做中心裁剪
+    if new_w == crop_size and new_h == crop_size:
+        return [img]
+
+    cx, cy = new_w // 2, new_h // 2
+    half = crop_size // 2
+    crops = [
+        img.crop((cx - half, cy - half, cx + half, cy + half)),  # 中心
+        img.crop((0, 0, crop_size, crop_size)),                   # 左上
+        img.crop((new_w - crop_size, 0, new_w, crop_size)),       # 右上
+        img.crop((0, new_h - crop_size, crop_size, new_h)),       # 左下
+        img.crop((new_w - crop_size, new_h - crop_size,
+                  new_w, new_h)),                                  # 右下
+    ]
+    return crops
+
+
+# ==================== 核心系统 ====================
 
 class PetRecognitionSystem:
-    def __init__(self, feature_dim=2048, index_path=None):
+    def __init__(self, feature_dim=1792, index_path=None):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = PetFeatureExtractor().to(self.device)
         self.model.eval()
+        self.feature_dim = feature_dim
 
         self.index = faiss.IndexFlatIP(feature_dim)
-        self.feature_dim = feature_dim
         self.metadata = []
 
         if index_path and os.path.exists(index_path):
             self.load_index(index_path)
 
-    def _get_single_feature(self, image_tensor):
-        """内部方法：获取单张Tensor的特征"""
+    def _extract_single(self, img):
+        """提取单张 PIL Image 的特征"""
+        tensor = self.model.transform(img).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            feat = self.model(image_tensor.to(self.device))
-        return feat.cpu().numpy()
+            feat = self.model(tensor)
+        return feat.cpu().numpy().flatten()
 
     def extract_features(self, image_path, use_tta=True):
-        """
-        提取特征，支持 TTA (测试时增强)
-        TTA 策略：原图 + 水平翻转图 + 五角裁剪平均 (可选)
-        这能显著提高对姿态变化的鲁棒性
+        """提取图片特征向量
+
+        TTA 策略：5 裁剪 × 2（原图 + 水平翻转）= 10 个视角取平均
         """
         img = Image.open(image_path).convert('RGB')
-        
-        # 1. 基础变换
-        base_tensor = self.model.infer_transform(img).unsqueeze(0)
-        base_feat = self._get_single_feature(base_tensor)
-        
+
         if not use_tta:
-            return np.ascontiguousarray(base_feat, dtype=np.float32)
+            feat = self._extract_single(img)
+            return np.ascontiguousarray(feat.reshape(1, -1), dtype=np.float32)
 
-        # 2. TTA: 水平翻转
-        h_flip_transform = transforms.Compose([
-            transforms.Resize((256, 256)),
-            transforms.CenterCrop((224, 224)),
-            transforms.RandomHorizontalFlip(p=1.0), # 强制翻转
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        flip_tensor = h_flip_transform(img).unsqueeze(0)
-        flip_feat = self._get_single_feature(flip_tensor)
+        crops = get_five_crops(img)
+        feats = []
+        for crop in crops:
+            feats.append(self._extract_single(crop))
+            feats.append(self._extract_single(crop.transpose(Image.FLIP_LEFT_RIGHT)))
 
-        # 3. 特征平均 (Feature Averaging)
-        # 平均后的特征比单一视角更稳定
-        avg_feat = (base_feat + flip_feat) / 2.0
-        
-        return np.ascontiguousarray(avg_feat, dtype=np.float32)
+        avg_feat = np.mean(feats, axis=0)
+        return np.ascontiguousarray(avg_feat.reshape(1, -1), dtype=np.float32)
 
     def normalize_features(self, features):
         faiss.normalize_L2(features)
@@ -94,22 +128,55 @@ class PetRecognitionSystem:
     def add_pet_to_database(self, image_path, pet_id, use_tta=True):
         features = self.extract_features(image_path, use_tta=use_tta)
         features = self.normalize_features(features)
-        
         self.index.add(features)
         self.metadata.append({'pet_id': pet_id, 'path': image_path})
-        # 静默模式，避免刷屏，或者保留print
-        # print(f"✅ 已添加: {pet_id}")
 
     def find_similar_pets(self, query_path, top_k=5, use_tta=True):
+        """基础相似度查询"""
+        query_features = self.extract_features(query_path, use_tta=use_tta)
+        query_features = self.normalize_features(query_features)
+        return self._search(query_features, top_k)
+
+    def find_similar_pets_aqe(self, query_path, top_k=5, aqe_k=3, use_tta=True):
+        """带 AQE (Average Query Expansion) 的相似度查询
+
+        原理：首次查询取 top-K → 将查询特征与 top-K 结果特征平均 → 重新归一化 → 再次查询
+        实践中能提升 3-8% 的检索准确率
+        """
         query_features = self.extract_features(query_path, use_tta=use_tta)
         query_features = self.normalize_features(query_features)
 
+        # 第一次查询
+        first_k = min(top_k + aqe_k, self.index.ntotal)
+        if first_k == 0:
+            return []
+
+        distances, indices = self.index.search(query_features, first_k)
+
+        # AQE：用 top-aqe_k 个结果的特征扩展查询
+        expanded = query_features.copy().flatten()
+        count = 1
+        for i in range(min(aqe_k, first_k)):
+            idx = indices[0][i]
+            if idx != -1:
+                expanded += self.index.reconstruct(int(idx))
+                count += 1
+
+        expanded = expanded / count
+        expanded = np.ascontiguousarray(expanded.reshape(1, -1), dtype=np.float32)
+        self.normalize_features(expanded)
+
+        # 第二次查询
+        return self._search(expanded, top_k)
+
+    def _search(self, query_features, top_k):
+        """内部搜索方法"""
         k = min(top_k, self.index.ntotal)
         if k == 0:
             return []
 
         distances, indices = self.index.search(query_features, k)
-        
+
         results = []
         for i in range(k):
             idx = indices[0][i]
@@ -128,7 +195,7 @@ class PetRecognitionSystem:
         meta_path = path.replace('.index', '_metadata.json')
         with open(meta_path, 'w', encoding='utf-8') as f:
             json.dump(self.metadata, f, ensure_ascii=False, indent=2)
-        print(f"💾 索引已保存: {path} (共 {self.index.ntotal} 条)")
+        print(f"索引已保存: {path} (共 {self.index.ntotal} 条)")
 
     def load_index(self, path):
         self.index = faiss.read_index(path)
@@ -136,42 +203,62 @@ class PetRecognitionSystem:
         if os.path.exists(meta_path):
             with open(meta_path, 'r', encoding='utf-8') as f:
                 self.metadata = json.load(f)
-            print(f"📂 索引已加载: {self.index.ntotal} 条记录")
+            print(f"索引已加载: {self.index.ntotal} 条记录")
 
-if __name__ == "__main__":
-    # 1. 初始化
+
+# ==================== 测试入口 ====================
+
+def test_similarity(data_path):
+    """测试 data 目录下所有图片的两两相似度（基础查询 vs AQE 查询对比）"""
     system = PetRecognitionSystem()
 
-    # 2. 批量导入 data 目录下的图片
-    # 注意：glob 返回的是绝对路径列表
-    data_imgs = glob_module.glob(os.path.join(DATA_PATH, "*.png"))
-    # 也可以加上 jpg/jpeg
-    data_imgs += glob_module.glob(os.path.join(DATA_PATH, "*.jpg"))
-    
-    print(f"📊 在 {DATA_PATH} 中找到 {len(data_imgs)} 张图片")
-    
-    for idx, img_path in enumerate(data_imgs):
-        try:
-            # 使用文件名作为 ID，或者自定义逻辑
-            pet_id = f"pet_{os.path.basename(img_path)}"
-            system.add_pet_to_database(img_path, pet_id=pet_id, use_tta=True)
-        except Exception as e:
-            print(f"❌ 处理失败 {img_path}: {e}")
+    data_imgs = sorted(
+        glob_module.glob(os.path.join(data_path, "*.png"))
+        + glob_module.glob(os.path.join(data_path, "*.jpg"))
+    )
 
-    # 3. 保存
+    if len(data_imgs) < 2:
+        print("图片数量不足，至少需要 2 张")
+        return
+
+    print(f"在 {data_path} 中找到 {len(data_imgs)} 张图片")
+    print(f"模型: EfficientNet-B4 (1792维)")
+    print(f"TTA: 5裁剪 x 水平翻转 = 10视角平均\n")
+
+    for img_path in data_imgs:
+        pet_id = os.path.basename(img_path)
+        system.add_pet_to_database(img_path, pet_id=pet_id, use_tta=True)
+
+    n = len(data_imgs)
+
+    # === 基础查询 ===
+    print("=" * 50)
+    print("基础查询（EfficientNet-B4 + 10视角 TTA）")
+    print("=" * 50)
+    for img_path in data_imgs:
+        name = os.path.basename(img_path)
+        print(f"--- {name} ---")
+        results = system.find_similar_pets(img_path, top_k=n)
+        for r in results:
+            marker = " *" if r["pet_id"] == name else ""
+            print(f"  {r['pet_id']:>15s}  {r['similarity']:.4f}{marker}")
+        print()
+
+    # === AQE 查询 ===
+    print("=" * 50)
+    print("AQE 查询（+ 平均查询扩展重排序）")
+    print("=" * 50)
+    for img_path in data_imgs:
+        name = os.path.basename(img_path)
+        print(f"--- {name} ---")
+        results = system.find_similar_pets_aqe(img_path, top_k=n, aqe_k=3)
+        for r in results:
+            marker = " *" if r["pet_id"] == name else ""
+            print(f"  {r['pet_id']:>15s}  {r['similarity']:.4f}{marker}")
+        print()
+
     system.save_index("pet_features_v2.index")
 
-    # 4. 验证查询
-    # 重新加载以模拟真实场景
-    search_system = PetRecognitionSystem(index_path="pet_features_v2.index")
-    
-    # 假设根目录下有测试图片
-    test_files = ["test_1.png", "test_2.png"] 
-    for t_file in test_files:
-        if os.path.exists(t_file):
-            print(f"\n🔍 查询: {t_file}")
-            results = search_system.find_similar_pets(t_file, top_k=3, use_tta=True)
-            for r in results:
-                print(f"  -> ID: {r['pet_id']} | Sim: {r['similarity']:.4f}")
-        else:
-            print(f"⚠️ 未找到测试文件: {t_file}")
+
+if __name__ == "__main__":
+    test_similarity(DATA_PATH)
