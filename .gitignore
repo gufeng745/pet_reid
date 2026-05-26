@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Data & models
+*.sqlite3
+*.db
+*.pkl
+*.pt
+*.pth
+*.onnx
+chroma_data/
+
+# Generated images (remove this line if you want to track them)
+*.png
+*.jpg
+*.jpeg

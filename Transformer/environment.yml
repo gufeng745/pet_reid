@@ -1,0 +1,17 @@
+name: transformer_learn
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pytorch
+  - cpuonly
+  - numpy
+  - matplotlib
+  - seaborn
+  - jupyter
+  - pip
+  - pip:
+      - torchviz
+      - graphviz
