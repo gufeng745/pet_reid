@@ -49,6 +49,40 @@ class PetFeatureExtractor(nn.Module):
         return self.features(x).squeeze(-1).squeeze(-1)
 
 
+class MobileNetV2FeatureExtractor:
+    """DINOv3 蒸馏的 MobileNetV2 特征提取器（ONNX 推理）"""
+
+    def __init__(self, onnx_path=None):
+        import onnxruntime as ort
+        if onnx_path is None:
+            base = os.path.dirname(os.path.abspath(__file__))
+            onnx_path = os.path.join(base, 'pet_mobilenetv2.onnx')
+            if not os.path.exists(onnx_path):
+                onnx_path = os.path.join(base, 'pet_mobilenetv2_int8.onnx')
+        if not os.path.exists(onnx_path):
+            raise FileNotFoundError(f"ONNX 模型不存在: {onnx_path}")
+        self.session = ort.InferenceSession(onnx_path)
+        self.input_name = self.session.get_inputs()[0].name
+        self.feature_dim = 512
+
+        self.transform = transforms.Compose([
+            transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+    def __call__(self, img_or_tensor):
+        if isinstance(img_or_tensor, Image.Image):
+            tensor = self.transform(img_or_tensor).unsqueeze(0).numpy()
+        else:
+            tensor = img_or_tensor.numpy() if isinstance(img_or_tensor, torch.Tensor) else img_or_tensor
+        feat = self.session.run(None, {self.input_name: tensor})[0]
+        # L2 归一化
+        feat = feat / (np.linalg.norm(feat, axis=-1, keepdims=True) + 1e-8)
+        return feat
+
+
 # ==================== 多裁剪 TTA ====================
 
 def get_five_crops(img, crop_size=380):
@@ -82,13 +116,22 @@ def get_five_crops(img, crop_size=380):
 # ==================== 核心系统 ====================
 
 class PetRecognitionSystem:
-    def __init__(self, feature_dim=1792, index_path=None):
+    def __init__(self, feature_dim=None, index_path=None, model_type='mobilenetv2'):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = PetFeatureExtractor().to(self.device)
-        self.model.eval()
-        self.feature_dim = feature_dim
+        self.model_type = model_type
 
-        self.index = faiss.IndexFlatIP(feature_dim)
+        if model_type == 'mobilenetv2':
+            self.model = MobileNetV2FeatureExtractor()
+            self.feature_dim = 512
+        else:
+            self.model = PetFeatureExtractor().to(self.device)
+            self.model.eval()
+            self.feature_dim = 1792
+
+        if feature_dim is not None:
+            self.feature_dim = feature_dim
+
+        self.index = faiss.IndexFlatIP(self.feature_dim)
         self.metadata = []
 
         if index_path and os.path.exists(index_path):
@@ -96,6 +139,8 @@ class PetRecognitionSystem:
 
     def _extract_single(self, img):
         """提取单张 PIL Image 的特征"""
+        if isinstance(self.model, MobileNetV2FeatureExtractor):
+            return self.model(img).flatten()
         tensor = self.model.transform(img).unsqueeze(0).to(self.device)
         with torch.no_grad():
             feat = self.model(tensor)
@@ -112,7 +157,8 @@ class PetRecognitionSystem:
             feat = self._extract_single(img)
             return np.ascontiguousarray(feat.reshape(1, -1), dtype=np.float32)
 
-        crops = get_five_crops(img)
+        crop_size = 224 if self.model_type == 'mobilenetv2' else 380
+        crops = get_five_crops(img, crop_size=crop_size)
         feats = []
         for crop in crops:
             feats.append(self._extract_single(crop))
@@ -208,9 +254,9 @@ class PetRecognitionSystem:
 
 # ==================== 测试入口 ====================
 
-def test_similarity(data_path):
+def test_similarity(data_path, model_type='mobilenetv2'):
     """测试 data 目录下所有图片的两两相似度（基础查询 vs AQE 查询对比）"""
-    system = PetRecognitionSystem()
+    system = PetRecognitionSystem(model_type=model_type)
 
     data_imgs = sorted(
         glob_module.glob(os.path.join(data_path, "*.png"))
@@ -221,8 +267,9 @@ def test_similarity(data_path):
         print("图片数量不足，至少需要 2 张")
         return
 
+    model_name = f"MobileNetV2-DINOv3 ({system.feature_dim}维)" if model_type == 'mobilenetv2' else f"EfficientNet-B4 ({system.feature_dim}维)"
     print(f"在 {data_path} 中找到 {len(data_imgs)} 张图片")
-    print(f"模型: EfficientNet-B4 (1792维)")
+    print(f"模型: {model_name}")
     print(f"TTA: 5裁剪 x 水平翻转 = 10视角平均\n")
 
     for img_path in data_imgs:
@@ -233,7 +280,7 @@ def test_similarity(data_path):
 
     # === 基础查询 ===
     print("=" * 50)
-    print("基础查询（EfficientNet-B4 + 10视角 TTA）")
+    print(f"基础查询（{model_name} + 10视角 TTA）")
     print("=" * 50)
     for img_path in data_imgs:
         name = os.path.basename(img_path)
@@ -261,4 +308,8 @@ def test_similarity(data_path):
 
 
 if __name__ == "__main__":
-    test_similarity(DATA_PATH)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', choices=['mobilenetv2', 'efficientnet_b4'], default='mobilenetv2')
+    args = parser.parse_args()
+    test_similarity(DATA_PATH, model_type=args.model)

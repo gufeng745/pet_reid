@@ -35,7 +35,12 @@ Thumbs.db
 *.pt
 *.pth
 *.onnx
+*.onnx.data
+*.index
+*_metadata.json
+*.whl
 chroma_data/
+pet_rec/datasets/
 
 # Generated images (remove this line if you want to track them)
 *.png
