@@ -1,3 +1,6 @@
+import os
+os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
+
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -6,7 +9,6 @@ from PIL import Image
 import numpy as np
 import faiss
 import json
-import os
 import sys
 import glob as glob_module
 
@@ -307,9 +309,96 @@ def test_similarity(data_path, model_type='mobilenetv2'):
     system.save_index("pet_features_v2.index")
 
 
+def compare_folder(folder_path, model_type='mobilenetv2', top_k=5):
+    """对指定文件夹下的图片进行特征提取、两两比对和检索"""
+    system = PetRecognitionSystem(model_type=model_type)
+
+    imgs = sorted(
+        glob_module.glob(os.path.join(folder_path, "*.png"))
+        + glob_module.glob(os.path.join(folder_path, "*.jpg"))
+        + glob_module.glob(os.path.join(folder_path, "*.jpeg"))
+        + glob_module.glob(os.path.join(folder_path, "*.bmp"))
+    )
+
+    if len(imgs) < 2:
+        print(f"图片数量不足（找到 {len(imgs)} 张），至少需要 2 张")
+        return
+
+    model_name = f"MobileNetV2-DINOv3 ({system.feature_dim}维)" if model_type == 'mobilenetv2' else f"EfficientNet-B4 ({system.feature_dim}维)"
+    print(f"文件夹: {folder_path}")
+    print(f"找到 {len(imgs)} 张图片")
+    print(f"模型: {model_name}")
+    print(f"TTA: 5裁剪 x 水平翻转 = 10视角平均\n")
+
+    # 提取特征并入库
+    names = []
+    feats = []
+    for img_path in imgs:
+        name = os.path.basename(img_path)
+        names.append(name)
+        feat = system.extract_features(img_path, use_tta=True)
+        feats.append(feat.flatten())
+        system.add_pet_to_database(img_path, pet_id=name, use_tta=True)
+
+    # === 特征向量信息 ===
+    print("=" * 60)
+    print("特征向量信息")
+    print("=" * 60)
+    for name, feat in zip(names, feats):
+        print(f"  {name:>20s}  dim={len(feat)}  L2 norm={np.linalg.norm(feat):.4f}  "
+              f"mean={feat.mean():.4f}  std={feat.std():.4f}")
+
+    # === 两两余弦相似度 ===
+    n = len(imgs)
+    print(f"\n{'=' * 60}")
+    print("两两余弦相似度矩阵")
+    print("=" * 60)
+    # 表头
+    header = f"{'':>20s}" + "".join(f"{name:>12s}" for name in names)
+    print(header)
+    for i, name_a in enumerate(names):
+        row = f"{name_a:>20s}"
+        for j, name_b in enumerate(names):
+            cos = np.dot(feats[i], feats[j]) / (np.linalg.norm(feats[i]) * np.linalg.norm(feats[j]) + 1e-8)
+            row += f"{cos:>12.4f}"
+        print(row)
+
+    # === 基础检索 ===
+    print(f"\n{'=' * 60}")
+    print(f"基础检索（{model_name} + 10视角 TTA）")
+    print("=" * 60)
+    for img_path in imgs:
+        name = os.path.basename(img_path)
+        print(f"--- 查询: {name} ---")
+        results = system.find_similar_pets(img_path, top_k=min(top_k, n), use_tta=True)
+        for r in results:
+            marker = " <<<" if r["pet_id"] == name else ""
+            print(f"  {r['pet_id']:>20s}  相似度={r['similarity']:.4f}{marker}")
+
+    # === AQE 检索 ===
+    print(f"\n{'=' * 60}")
+    print("AQE 检索（+ 平均查询扩展重排序）")
+    print("=" * 60)
+    for img_path in imgs:
+        name = os.path.basename(img_path)
+        print(f"--- 查询: {name} ---")
+        results = system.find_similar_pets_aqe(img_path, top_k=min(top_k, n), aqe_k=3, use_tta=True)
+        for r in results:
+            marker = " <<<" if r["pet_id"] == name else ""
+            print(f"  {r['pet_id']:>20s}  相似度={r['similarity']:.4f}{marker}")
+
+    # 保存索引
+    index_path = os.path.join(folder_path, "pet_features.index")
+    system.save_index(index_path)
+
+
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='宠物图片特征提取与比对')
+    parser.add_argument('--folder', type=str, default=None, help='图片文件夹路径（默认 data 目录）')
     parser.add_argument('--model', choices=['mobilenetv2', 'efficientnet_b4'], default='mobilenetv2')
+    parser.add_argument('--top_k', type=int, default=5, help='检索返回数量')
     args = parser.parse_args()
-    test_similarity(DATA_PATH, model_type=args.model)
+
+    folder = args.folder if args.folder else DATA_PATH
+    compare_folder(folder, model_type=args.model, top_k=args.top_k)

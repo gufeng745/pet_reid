@@ -42,6 +42,10 @@ Thumbs.db
 chroma_data/
 pet_rec/datasets/
 
+# Allow pet_rec model files
+!pet_rec/checkpoints/*.pth
+!pet_rec/*.onnx
+
 # Generated images (remove this line if you want to track them)
 *.png
 *.jpg
