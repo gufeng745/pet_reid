@@ -11,7 +11,7 @@ os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
 os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
 
 from models import DINOv3Teacher, DINOv2Teacher, MobileNetV2Student, TeacherAdapter
-from distillation import DistillationLoss
+from distillation import DistillationLoss, ColorAwareDistillationLoss
 from prepare_data import create_dataloaders
 
 
@@ -38,7 +38,13 @@ def train(args):
     print(f"Feature dim: {args.proj_dim}")
 
     # === Loss ===
-    criterion = DistillationLoss(alpha=args.alpha, beta=args.beta, gamma=args.gamma)
+    if args.color_aware:
+        criterion = ColorAwareDistillationLoss(
+            alpha=args.alpha, beta=args.beta, gamma=args.gamma, delta=args.delta
+        )
+        print(f"Color-aware training enabled (delta={args.delta})")
+    else:
+        criterion = DistillationLoss(alpha=args.alpha, beta=args.beta, gamma=args.gamma)
 
     # === Optimizer (双学习率) ===
     optimizer = AdamW([
@@ -54,7 +60,9 @@ def train(args):
 
     # === Data ===
     dataset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'datasets')
-    train_loader, eval_loader = create_dataloaders(dataset_root, batch_size=args.batch_size)
+    train_loader, eval_loader = create_dataloaders(
+        dataset_root, batch_size=args.batch_size, use_trimap=args.color_aware
+    )
     print(f"Train: {len(train_loader.dataset)} images, {len(train_loader)} batches")
     print(f"Eval:  {len(eval_loader.dataset)} images, {len(eval_loader)} batches")
 
@@ -68,10 +76,18 @@ def train(args):
     for epoch in range(args.epochs):
         student.train()
         adapter.train()
-        epoch_losses = {'total': 0, 'align': 0, 'sim': 0, 'uniform': 0}
+        loss_keys = ['total', 'align', 'sim', 'uniform'] + (['color_sep'] if args.color_aware else [])
+        epoch_losses = {k: 0 for k in loss_keys}
         t0 = time.time()
 
-        for batch_idx, (view1, view2, _) in enumerate(train_loader):
+        for batch_idx, batch_data in enumerate(train_loader):
+            if args.color_aware:
+                view1, view2, color_feat = batch_data
+                color_feat = color_feat.to(device)
+            else:
+                view1, view2, _ = batch_data
+                color_feat = None
+
             view1 = view1.to(device)
             view2 = view2.to(device)
 
@@ -85,8 +101,12 @@ def train(args):
             s2 = student(view2)
 
             # Loss (双向平均)
-            loss1, details1 = criterion(t1, s1, adapter)
-            loss2, details2 = criterion(t2, s2, adapter)
+            if args.color_aware:
+                loss1, details1 = criterion(t1, s1, adapter, color_feat=color_feat)
+                loss2, details2 = criterion(t2, s2, adapter, color_feat=color_feat)
+            else:
+                loss1, details1 = criterion(t1, s1, adapter)
+                loss2, details2 = criterion(t2, s2, adapter)
             loss = (loss1 + loss2) / 2
 
             optimizer.zero_grad()
@@ -98,9 +118,12 @@ def train(args):
 
             if (batch_idx + 1) % args.log_interval == 0:
                 avg = {k: v / (batch_idx + 1) for k, v in epoch_losses.items()}
-                print(f"  [{epoch+1}/{args.epochs}] batch {batch_idx+1}/{len(train_loader)} "
-                      f"loss={avg['total']:.4f} align={avg['align']:.4f} "
-                      f"sim={avg['sim']:.4f} uniform={avg['uniform']:.4f}")
+                msg = (f"  [{epoch+1}/{args.epochs}] batch {batch_idx+1}/{len(train_loader)} "
+                       f"loss={avg['total']:.4f} align={avg['align']:.4f} "
+                       f"sim={avg['sim']:.4f} uniform={avg['uniform']:.4f}")
+                if args.color_aware:
+                    msg += f" color={avg['color_sep']:.4f}"
+                print(msg)
 
         scheduler.step()
         avg_loss = epoch_losses['total'] / len(train_loader)
@@ -146,6 +169,8 @@ def parse_args():
     p.add_argument('--alpha', type=float, default=1.0, help='alignment loss weight')
     p.add_argument('--beta', type=float, default=0.5, help='self-similarity loss weight')
     p.add_argument('--gamma', type=float, default=0.1, help='uniformity loss weight')
+    p.add_argument('--color_aware', action='store_true', help='启用颜色感知训练（需要 trimap 标注）')
+    p.add_argument('--delta', type=float, default=0.3, help='color separation loss weight')
     p.add_argument('--save_interval', type=int, default=10)
     p.add_argument('--log_interval', type=int, default=10)
     return p.parse_args()

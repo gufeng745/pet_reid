@@ -7,10 +7,109 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
+import cv2
 import faiss
 import json
 import sys
 import glob as glob_module
+
+
+# ==================== 宠物区域分割 ====================
+
+class PetSegmenter:
+    """轻量宠物前景分割器
+
+    使用 torchvision 内置的 DeepLabV3-MobileNetV3 做语义分割，
+    将人、猫、狗等前景目标从背景中分离出来。
+    MobileNetV3-Large 推理速度很快，适合做前处理。
+    """
+
+    # COCO Stuff / VOC 类别中属于宠物/动物的 ID
+    # DeepLabV3-MobileNetV3 (COCO) 的 person=0, cat=8, dog=15, horse=17, ...
+    PET_CLASSES = {0, 8, 15, 17, 18}  # person + 常见宠物
+
+    def __init__(self, device=None):
+        self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
+        self.model = models.segmentation.deeplabv3_mobilenet_v3_large(
+            pretrained=True, pretrained_backbone=True
+        ).to(self.device).eval()
+
+        self.transform = transforms.Compose([
+            transforms.Resize(520),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+
+    @torch.no_grad()
+    def segment(self, img):
+        """对 PIL Image 做语义分割，返回前景 mask
+
+        Returns:
+            mask: (H, W) bool tensor, True = 前景
+        """
+        orig_w, orig_h = img.size
+        inp = self.transform(img).unsqueeze(0).to(self.device)
+        out = self.model(inp)['out']  # (1, 21, H', W')
+        pred = out.argmax(dim=1).squeeze(0)  # (H', W')
+
+        # 只保留宠物/动物类别的像素
+        mask = torch.zeros_like(pred, dtype=torch.bool)
+        for cls_id in self.PET_CLASSES:
+            mask |= (pred == cls_id)
+
+        # 形态学处理：先膨胀再腐蚀，填补前景内的空洞
+        mask_np = mask.cpu().numpy().astype(np.uint8)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        mask_np = cv2.morphologyEx(mask_np, cv2.MORPH_CLOSE, kernel)
+
+        # 缩放回原图尺寸
+        mask_resized = cv2.resize(mask_np, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
+        return torch.from_numpy(mask_resized).bool()
+
+    def mask_image(self, img, bg_color=(255, 255, 255)):
+        """将背景替换为纯色，返回新的 PIL Image"""
+        mask = self.segment(img)
+        arr = np.array(img)
+        bg = np.full_like(arr, bg_color, dtype=np.uint8)
+        mask_3d = mask.unsqueeze(-1).cpu().numpy().astype(np.uint8)
+        result = arr * mask_3d + bg * (1 - mask_3d)
+        return Image.fromarray(result)
+
+
+def extract_color_histogram_from_masked_image(img, mask=None, bins=32):
+    """从图像（或 masked 图像）提取 HSV 颜色直方图
+
+    如果提供 mask，只在 mask=True 的前景像素上计算。
+
+    Args:
+        img: PIL Image (RGB)
+        mask: (H, W) bool tensor 或 None
+        bins: 每通道直方图 bin 数
+    Returns:
+        color_feat: (bins*3,) 归一化颜色直方图
+    """
+    arr = np.array(img)
+    hsv = cv2.cvtColor(arr, cv2.COLOR_RGB2HSV)
+
+    if mask is not None:
+        mask_np = mask.cpu().numpy().astype(bool)
+        if mask_np.sum() < 50:
+            mask_np = np.ones(mask_np.shape, dtype=bool)  # 前景太少退回全图
+        h = hsv[:, :, 0][mask_np]
+        s = hsv[:, :, 1][mask_np]
+        v = hsv[:, :, 2][mask_np]
+    else:
+        h = hsv[:, :, 0].flatten()
+        s = hsv[:, :, 1].flatten()
+        v = hsv[:, :, 2].flatten()
+
+    hist_h = np.histogram(h, bins=bins, range=(0, 180))[0].astype(np.float32)
+    hist_s = np.histogram(s, bins=bins, range=(0, 256))[0].astype(np.float32)
+    hist_v = np.histogram(v, bins=bins, range=(0, 256))[0].astype(np.float32)
+
+    color_feat = np.concatenate([hist_h, hist_s, hist_v])
+    color_feat = color_feat / (color_feat.sum() + 1e-8)  # L1 归一化
+    return color_feat
 
 def get_data_path():
     script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -118,7 +217,8 @@ def get_five_crops(img, crop_size=380):
 # ==================== 核心系统 ====================
 
 class PetRecognitionSystem:
-    def __init__(self, feature_dim=None, index_path=None, model_type='mobilenetv2'):
+    def __init__(self, feature_dim=None, index_path=None, model_type='mobilenetv2',
+                 enable_color_rerank=False):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_type = model_type
 
@@ -135,6 +235,8 @@ class PetRecognitionSystem:
 
         self.index = faiss.IndexFlatIP(self.feature_dim)
         self.metadata = []
+        self.enable_color_rerank = enable_color_rerank
+        self.segmenter = None  # 延迟加载，节省内存
 
         if index_path and os.path.exists(index_path):
             self.load_index(index_path)
@@ -236,6 +338,110 @@ class PetRecognitionSystem:
                 })
         return results
 
+    def _get_segmenter(self):
+        """延迟加载分割器"""
+        if self.segmenter is None:
+            self.segmenter = PetSegmenter(device=self.device)
+        return self.segmenter
+
+    def _extract_pet_color(self, image_path, use_segmentation=True):
+        """提取宠物前景颜色特征
+
+        Args:
+            image_path: 图片路径
+            use_segmentation: 是否用分割模型去除背景
+        Returns:
+            color_feat: (96,) 归一化 HSV 颜色直方图
+        """
+        img = Image.open(image_path).convert('RGB')
+        if use_segmentation:
+            seg = self._get_segmenter()
+            mask = seg.segment(img)
+        else:
+            mask = None
+        return extract_color_histogram_from_masked_image(img, mask=mask)
+
+    def find_similar_pets_color_rerank(self, query_path, top_k=5, color_weight=0.3,
+                                        retrieval_k=None, use_tta=True,
+                                        use_segmentation=True):
+        """带颜色感知重排序的相似度检索
+
+        流程：
+        1. 用特征向量做初筛（召回 retrieval_k 个候选）
+        2. 用宠物前景颜色直方图对候选重排序
+        3. 按 feature_sim * alpha + color_sim * (1-alpha) 综合排序
+
+        Args:
+            query_path: 查询图片路径
+            top_k: 最终返回数量
+            color_weight: 颜色相似度权重 (0~1)，越大越看重颜色区分
+            retrieval_k: 初筛召回数量，默认 top_k * 5
+            use_tta: 是否用 TTA
+            use_segmentation: 是否用分割模型去除背景（推荐）
+        """
+        if retrieval_k is None:
+            retrieval_k = min(top_k * 5, self.index.ntotal)
+
+        # 1. 特征向量初筛
+        query_results = self.find_similar_pets(query_path, top_k=retrieval_k, use_tta=use_tta)
+        if not query_results:
+            return []
+
+        # 2. 提取查询图的宠物前景颜色
+        query_color = self._extract_pet_color(query_path, use_segmentation=use_segmentation)
+
+        # 3. 对每个候选提取颜色并计算综合得分
+        feature_weight = 1.0 - color_weight
+        for r in query_results:
+            try:
+                cand_color = self._extract_pet_color(r['path'], use_segmentation=use_segmentation)
+                # 颜色相似度：用直方图交集度量（越大越相似）
+                color_sim = np.minimum(query_color, cand_color).sum()
+            except Exception:
+                color_sim = 0.0
+            r['color_similarity'] = float(color_sim)
+            r['combined_score'] = feature_weight * r['similarity'] + color_weight * color_sim
+
+        # 4. 按综合得分排序
+        query_results.sort(key=lambda x: x['combined_score'], reverse=True)
+        return query_results[:top_k]
+
+    def add_pet_to_database_with_color(self, image_path, pet_id, use_tta=True,
+                                        use_segmentation=True):
+        """入库时同时存储颜色特征（用于颜色重排序）"""
+        self.add_pet_to_database(image_path, pet_id, use_tta=use_tta)
+        color_feat = self._extract_pet_color(image_path, use_segmentation=use_segmentation)
+        self.metadata[-1]['color_hist'] = color_feat.tolist()
+
+    def find_similar_pets_color_rerank_fast(self, query_path, top_k=5, color_weight=0.3,
+                                             retrieval_k=None, use_tta=True,
+                                             use_segmentation=True):
+        """快速颜色重排序版本（颜色特征从 metadata 读取，不需要重复提取）
+
+        前提：入库时使用了 add_pet_to_database_with_color()
+        """
+        if retrieval_k is None:
+            retrieval_k = min(top_k * 5, self.index.ntotal)
+
+        query_results = self.find_similar_pets(query_path, top_k=retrieval_k, use_tta=use_tta)
+        if not query_results:
+            return []
+
+        query_color = self._extract_pet_color(query_path, use_segmentation=use_segmentation)
+
+        feature_weight = 1.0 - color_weight
+        for r in query_results:
+            cand_color = np.array(r.get('color_hist', []))
+            if len(cand_color) > 0:
+                color_sim = float(np.minimum(query_color, cand_color).sum())
+            else:
+                color_sim = 0.0
+            r['color_similarity'] = color_sim
+            r['combined_score'] = feature_weight * r['similarity'] + color_weight * color_sim
+
+        query_results.sort(key=lambda x: x['combined_score'], reverse=True)
+        return query_results[:top_k]
+
     def save_index(self, path):
         if os.path.dirname(path):
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -309,9 +515,15 @@ def test_similarity(data_path, model_type='mobilenetv2'):
     system.save_index("pet_features_v2.index")
 
 
-def compare_folder(folder_path, model_type='mobilenetv2', top_k=5):
-    """对指定文件夹下的图片进行特征提取、两两比对和检索"""
-    system = PetRecognitionSystem(model_type=model_type)
+def compare_folder(folder_path, model_type='mobilenetv2', top_k=5,
+                    color_rerank=False, color_weight=0.3):
+    """对指定文件夹下的图片进行特征提取、两两比对和检索
+
+    Args:
+        color_rerank: 是否启用颜色感知重排序
+        color_weight: 颜色相似度权重 (0~1)
+    """
+    system = PetRecognitionSystem(model_type=model_type, enable_color_rerank=color_rerank)
 
     imgs = sorted(
         glob_module.glob(os.path.join(folder_path, "*.png"))
@@ -387,6 +599,27 @@ def compare_folder(folder_path, model_type='mobilenetv2', top_k=5):
             marker = " <<<" if r["pet_id"] == name else ""
             print(f"  {r['pet_id']:>20s}  相似度={r['similarity']:.4f}{marker}")
 
+    # === 颜色感知重排序 ===
+    if color_rerank:
+        print(f"\n{'=' * 60}")
+        print(f"颜色感知重排序（color_weight={color_weight}）")
+        print("  - 使用 DeepLabV3 分割前景，只在宠物区域提取颜色")
+        print("  - 综合得分 = 特征相似度 × {:.1f} + 颜色相似度 × {:.1f}".format(
+            1 - color_weight, color_weight))
+        print("=" * 60)
+        for img_path in imgs:
+            name = os.path.basename(img_path)
+            print(f"--- 查询: {name} ---")
+            results = system.find_similar_pets_color_rerank(
+                img_path, top_k=min(top_k, n),
+                color_weight=color_weight, use_tta=True, use_segmentation=True,
+            )
+            for r in results:
+                marker = " <<<" if r["pet_id"] == name else ""
+                print(f"  {r['pet_id']:>20s}  特征={r['similarity']:.4f}  "
+                      f"颜色={r['color_similarity']:.4f}  "
+                      f"综合={r['combined_score']:.4f}{marker}")
+
     # 保存索引
     index_path = os.path.join(folder_path, "pet_features.index")
     system.save_index(index_path)
@@ -398,7 +631,10 @@ if __name__ == "__main__":
     parser.add_argument('--folder', type=str, default=None, help='图片文件夹路径（默认 data 目录）')
     parser.add_argument('--model', choices=['mobilenetv2', 'efficientnet_b4'], default='mobilenetv2')
     parser.add_argument('--top_k', type=int, default=5, help='检索返回数量')
+    parser.add_argument('--color_rerank', action='store_true', help='启用颜色感知重排序（需要安装 opencv-python）')
+    parser.add_argument('--color_weight', type=float, default=0.3, help='颜色相似度权重 (0~1)，默认 0.3')
     args = parser.parse_args()
 
     folder = args.folder if args.folder else DATA_PATH
-    compare_folder(folder, model_type=args.model, top_k=args.top_k)
+    compare_folder(folder, model_type=args.model, top_k=args.top_k,
+                   color_rerank=args.color_rerank, color_weight=args.color_weight)
