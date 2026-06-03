@@ -146,3 +146,53 @@ class ColorAwareDistillationLoss(nn.Module):
             details['color_sep'] = 0.0
 
         return total if color_feat is not None and self.delta > 0 else base, details
+
+
+class AttributeDistillationLoss(nn.Module):
+    """多属性蒸馏损失 = 基础蒸馏 + 主色CE + 副色BCE + 花纹BCE
+
+    - color_primary: 单标签 → CrossEntropyLoss
+    - color_secondary: 多标签 → BCEWithLogitsLoss（multi-hot）
+    - pattern: 多标签 → BCEWithLogitsLoss（multi-hot）
+    """
+
+    def __init__(self, alpha=1.0, beta=0.5, gamma=0.1,
+                 lambda_color_pri=0.2, lambda_color_sec=0.15, lambda_pattern=0.15):
+        super().__init__()
+        self.lambda_color_pri = lambda_color_pri
+        self.lambda_color_sec = lambda_color_sec
+        self.lambda_pattern = lambda_pattern
+        self.base_loss = DistillationLoss(alpha, beta, gamma)
+
+    def forward(self, teacher_feat, student_feat, teacher_adapter,
+                color_pri_logits, color_sec_logits, pattern_logits,
+                color_pri_labels, color_sec_labels, pattern_labels):
+        """
+        Args:
+            teacher_feat: (B, D_t) 教师特征
+            student_feat: (B, D_s) 学生特征
+            teacher_adapter: 教师适配器
+            color_pri_logits: (B, num_colors) 主色预测
+            color_sec_logits: (B, num_colors) 副色预测（多标签）
+            pattern_logits: (B, num_patterns) 花纹预测（多标签）
+            color_pri_labels: (B,) 主色标签（long）
+            color_sec_labels: (B, num_colors) 副色标签（multi-hot float）
+            pattern_labels: (B, num_patterns) 花纹标签（multi-hot float）
+        """
+        base, details = self.base_loss(teacher_feat, student_feat, teacher_adapter)
+
+        loss_color_pri = F.cross_entropy(color_pri_logits, color_pri_labels)
+        loss_color_sec = F.binary_cross_entropy_with_logits(color_sec_logits, color_sec_labels)
+        loss_pattern = F.binary_cross_entropy_with_logits(pattern_logits, pattern_labels)
+
+        total = (base
+                 + self.lambda_color_pri * loss_color_pri
+                 + self.lambda_color_sec * loss_color_sec
+                 + self.lambda_pattern * loss_pattern)
+
+        details['color_pri'] = loss_color_pri.item()
+        details['color_sec'] = loss_color_sec.item()
+        details['pattern'] = loss_pattern.item()
+        details['total'] = total.item()
+
+        return total, details

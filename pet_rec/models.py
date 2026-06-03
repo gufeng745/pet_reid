@@ -69,3 +69,43 @@ class TeacherAdapter(nn.Module):
 
     def forward(self, x):
         return F.normalize(self.linear(x), dim=-1)
+
+
+class MobileNetV2StudentWithAttr(nn.Module):
+    """带属性预测头的 MobileNetV2 学生模型
+
+    训练时：backbone → 投影头(512维) + 颜色头 + 花纹头
+    推理时：只用投影头，属性头丢弃（forward_emb）
+    """
+
+    def __init__(self, proj_dim=512, num_colors=11, num_patterns=10):
+        super().__init__()
+        self.backbone = timm.create_model('mobilenetv2_100', pretrained=True, num_classes=0)
+        self.projector = nn.Sequential(
+            nn.Linear(1280, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, proj_dim),
+        )
+        # 属性预测头（共享 backbone 特征）
+        self.color_primary_head = nn.Sequential(
+            nn.Dropout(0.3), nn.Linear(1280, num_colors)
+        )
+        self.color_secondary_head = nn.Sequential(
+            nn.Dropout(0.3), nn.Linear(1280, num_colors)
+        )
+        self.pattern_head = nn.Sequential(
+            nn.Dropout(0.3), nn.Linear(1280, num_patterns)
+        )
+        self.feature_dim = proj_dim
+
+    def forward(self, x):
+        """训练用：返回特征 + 属性预测"""
+        feat = self.backbone(x)
+        emb = F.normalize(self.projector(feat), dim=-1)
+        return emb, self.color_primary_head(feat), self.color_secondary_head(feat), self.pattern_head(feat)
+
+    def forward_emb(self, x):
+        """推理用：只返回特征向量"""
+        feat = self.backbone(x)
+        return F.normalize(self.projector(feat), dim=-1)
