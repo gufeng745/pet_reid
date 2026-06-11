@@ -1,0 +1,947 @@
+[
+  {
+    "query": "1-1.png",
+    "top_matches": [
+      {
+        "image": "1-2.png",
+        "similarity": 0.9222436547279358
+      },
+      {
+        "image": "1-7.png",
+        "similarity": 0.8668301701545715
+      },
+      {
+        "image": "1-15.png",
+        "similarity": 0.7800312042236328
+      },
+      {
+        "image": "1-4.png",
+        "similarity": 0.739754855632782
+      },
+      {
+        "image": "1-12.png",
+        "similarity": 0.7130967974662781
+      },
+      {
+        "image": "1-1.png",
+        "similarity": 0.5615404844284058
+      },
+      {
+        "image": "1-14.png",
+        "similarity": 0.5533103942871094
+      },
+      {
+        "image": "1-10.png",
+        "similarity": 0.5460529327392578
+      },
+      {
+        "image": "1-5.png",
+        "similarity": 0.13231511414051056
+      },
+      {
+        "image": "1-3.png",
+        "similarity": 0.102568119764328
+      }
+    ]
+  },
+  {
+    "query": "1-2.png",
+    "top_matches": [
+      {
+        "image": "1-15.png",
+        "similarity": 0.896213173866272
+      },
+      {
+        "image": "1-12.png",
+        "similarity": 0.8858381509780884
+      },
+      {
+        "image": "1-7.png",
+        "similarity": 0.8653098344802856
+      },
+      {
+        "image": "1-2.png",
+        "similarity": 0.8404514789581299
+      },
+      {
+        "image": "1-4.png",
+        "similarity": 0.787960946559906
+      },
+      {
+        "image": "1-1.png",
+        "similarity": 0.7269963026046753
+      },
+      {
+        "image": "1-10.png",
+        "similarity": 0.6347574591636658
+      },
+      {
+        "image": "1-14.png",
+        "similarity": 0.621611475944519
+      },
+      {
+        "image": "4-1.png",
+        "similarity": 0.145371213555336
+      },
+      {
+        "image": "1-5.png",
+        "similarity": 0.14511612057685852
+      }
+    ]
+  },
+  {
+    "query": "1-3.png",
+    "top_matches": [
+      {
+        "image": "1-2.png",
+        "similarity": 0.9376013278961182
+      },
+      {
+        "image": "1-7.png",
+        "similarity": 0.907417893409729
+      },
+      {
+        "image": "1-15.png",
+        "similarity": 0.8181276321411133
+      },
+      {
+        "image": "1-4.png",
+        "similarity": 0.7793385982513428
+      },
+      {
+        "image": "1-12.png",
+        "similarity": 0.7650368809700012
+      },
+      {
+        "image": "1-1.png",
+        "similarity": 0.6052942276000977
+      },
+      {
+        "image": "1-14.png",
+        "similarity": 0.5853642225265503
+      },
+      {
+        "image": "1-10.png",
+        "similarity": 0.5741033554077148
+      },
+      {
+        "image": "1-5.png",
+        "similarity": 0.14291326701641083
+      },
+      {
+        "image": "1-3.png",
+        "similarity": 0.11216230690479279
+      }
+    ]
+  },
+  {
+    "query": "1-4.png",
+    "top_matches": [
+      {
+        "image": "1-2.png",
+        "similarity": 0.7807367444038391
+      },
+      {
+        "image": "1-7.png",
+        "similarity": 0.6302955150604248
+      },
+      {
+        "image": "1-15.png",
+        "similarity": 0.5955851674079895
+      },
+      {
+        "image": "1-12.png",
+        "similarity": 0.5600833296775818
+      },
+      {
+        "image": "1-4.png",
+        "similarity": 0.5100066661834717
+      },
+      {
+        "image": "1-1.png",
+        "similarity": 0.454001784324646
+      },
+      {
+        "image": "1-10.png",
+        "similarity": 0.43399953842163086
+      },
+      {
+        "image": "1-14.png",
+        "similarity": 0.4224720597267151
+      },
+      {
+        "image": "4-1.png",
+        "similarity": 0.10515561699867249
+      },
+      {
+        "image": "1-5.png",
+        "similarity": 0.07994163036346436
+      }
+    ]
+  },
+  {
+    "query": "1-5.png",
+    "top_matches": [
+      {
+        "image": "1-3.png",
+        "similarity": 0.9230780601501465
+      },
+      {
+        "image": "1-6.png",
+        "similarity": 0.890953540802002
+      },
+      {
+        "image": "1-9.png",
+        "similarity": 0.8786422610282898
+      },
+      {
+        "image": "1-5.png",
+        "similarity": 0.8651160597801208
+      },
+      {
+        "image": "1-8.png",
+        "similarity": 0.8576534986495972
+      },
+      {
+        "image": "2-3.png",
+        "similarity": 0.8357268571853638
+      },
+      {
+        "image": "1-13.png",
+        "similarity": 0.8225551843643188
+      },
+      {
+        "image": "5-2.png",
+        "similarity": 0.821751594543457
+      },
+      {
+        "image": "5-7.png",
+        "similarity": 0.8129938840866089
+      },
+      {
+        "image": "4-2.png",
+        "similarity": 0.8100559711456299
+      }
+    ]
+  },
+  {
+    "query": "1-6.png",
+    "top_matches": [
+      {
+        "image": "1-15.png",
+        "similarity": 0.9194653034210205
+      },
+      {
+        "image": "1-12.png",
+        "similarity": 0.9018962979316711
+      },
+      {
+        "image": "1-7.png",
+        "similarity": 0.8875455260276794
+      },
+      {
+        "image": "1-1.png",
+        "similarity": 0.8588700294494629
+      },
+      {
+        "image": "1-2.png",
+        "similarity": 0.8465932607650757
+      },
+      {
+        "image": "1-4.png",
+        "similarity": 0.8444904088973999
+      },
+      {
+        "image": "1-10.png",
+        "similarity": 0.7712316513061523
+      },
+      {
+        "image": "1-14.png",
+        "similarity": 0.6895532608032227
+      },
+      {
+        "image": "1-13.png",
+        "similarity": 0.19909080862998962
+      },
+      {
+        "image": "4-1.png",
+        "similarity": 0.16742348670959473
+      }
+    ]
+  },
+  {
+    "query": "1-7.png",
+    "top_matches": [
+      {
+        "image": "1-6.png",
+        "similarity": 0.9381474256515503
+      },
+      {
+        "image": "1-3.png",
+        "similarity": 0.9280834794044495
+      },
+      {
+        "image": "1-8.png",
+        "similarity": 0.9265364408493042
+      },
+      {
+        "image": "1-5.png",
+        "similarity": 0.9265298843383789
+      },
+      {
+        "image": "1-11.png",
+        "similarity": 0.9233410358428955
+      },
+      {
+        "image": "1-9.png",
+        "similarity": 0.9047048687934875
+      },
+      {
+        "image": "2-3.png",
+        "similarity": 0.8692243099212646
+      },
+      {
+        "image": "4-2.png",
+        "similarity": 0.8685340285301208
+      },
+      {
+        "image": "5-3.png",
+        "similarity": 0.8402112722396851
+      },
+      {
+        "image": "5-2.png",
+        "similarity": 0.8369045257568359
+      }
+    ]
+  },
+  {
+    "query": "2-1.png",
+    "top_matches": [
+      {
+        "image": "5-1.png",
+        "similarity": 0.896604597568512
+      },
+      {
+        "image": "6-6.png",
+        "similarity": 0.8880794048309326
+      },
+      {
+        "image": "6-3.png",
+        "similarity": 0.8858797550201416
+      },
+      {
+        "image": "5-5.png",
+        "similarity": 0.8828616142272949
+      },
+      {
+        "image": "2-6.png",
+        "similarity": 0.8825047016143799
+      },
+      {
+        "image": "6-4.png",
+        "similarity": 0.8761476278305054
+      },
+      {
+        "image": "6-1.png",
+        "similarity": 0.8751665949821472
+      },
+      {
+        "image": "3-2.png",
+        "similarity": 0.866051197052002
+      },
+      {
+        "image": "2-7.png",
+        "similarity": 0.8636837005615234
+      },
+      {
+        "image": "3-4.png",
+        "similarity": 0.8632066249847412
+      }
+    ]
+  },
+  {
+    "query": "2-2.png",
+    "top_matches": [
+      {
+        "image": "5-1.png",
+        "similarity": 0.9951237440109253
+      },
+      {
+        "image": "6-1.png",
+        "similarity": 0.9943057298660278
+      },
+      {
+        "image": "3-4.png",
+        "similarity": 0.9706950187683105
+      },
+      {
+        "image": "3-1.png",
+        "similarity": 0.9635218977928162
+      },
+      {
+        "image": "2-6.png",
+        "similarity": 0.9561334848403931
+      },
+      {
+        "image": "6-3.png",
+        "similarity": 0.9483978748321533
+      },
+      {
+        "image": "6-2.png",
+        "similarity": 0.9450916051864624
+      },
+      {
+        "image": "3-2.png",
+        "similarity": 0.9288961887359619
+      },
+      {
+        "image": "6-6.png",
+        "similarity": 0.9116578102111816
+      },
+      {
+        "image": "3-3.png",
+        "similarity": 0.8826159834861755
+      }
+    ]
+  },
+  {
+    "query": "2-3.png",
+    "top_matches": [
+      {
+        "image": "3-2.png",
+        "similarity": 0.9828846454620361
+      },
+      {
+        "image": "3-3.png",
+        "similarity": 0.979722261428833
+      },
+      {
+        "image": "3-1.png",
+        "similarity": 0.975144624710083
+      },
+      {
+        "image": "3-5.png",
+        "similarity": 0.9737797975540161
+      },
+      {
+        "image": "3-4.png",
+        "similarity": 0.962041437625885
+      },
+      {
+        "image": "5-5.png",
+        "similarity": 0.9605905413627625
+      },
+      {
+        "image": "6-1.png",
+        "similarity": 0.9542524218559265
+      },
+      {
+        "image": "2-6.png",
+        "similarity": 0.9504110217094421
+      },
+      {
+        "image": "5-1.png",
+        "similarity": 0.918122410774231
+      },
+      {
+        "image": "6-3.png",
+        "similarity": 0.8778496980667114
+      }
+    ]
+  },
+  {
+    "query": "3-1.png",
+    "top_matches": [
+      {
+        "image": "3-4.png",
+        "similarity": 0.9942270517349243
+      },
+      {
+        "image": "6-1.png",
+        "similarity": 0.9867414236068726
+      },
+      {
+        "image": "3-1.png",
+        "similarity": 0.9815987348556519
+      },
+      {
+        "image": "5-1.png",
+        "similarity": 0.9800248146057129
+      },
+      {
+        "image": "2-6.png",
+        "similarity": 0.9729748964309692
+      },
+      {
+        "image": "3-2.png",
+        "similarity": 0.9630811810493469
+      },
+      {
+        "image": "6-3.png",
+        "similarity": 0.9402704834938049
+      },
+      {
+        "image": "6-2.png",
+        "similarity": 0.9364650249481201
+      },
+      {
+        "image": "3-3.png",
+        "similarity": 0.902549147605896
+      },
+      {
+        "image": "6-6.png",
+        "similarity": 0.892611026763916
+      }
+    ]
+  },
+  {
+    "query": "3-2.png",
+    "top_matches": [
+      {
+        "image": "3-2.png",
+        "similarity": 0.9944189786911011
+      },
+      {
+        "image": "3-1.png",
+        "similarity": 0.9883323311805725
+      },
+      {
+        "image": "3-4.png",
+        "similarity": 0.9880352020263672
+      },
+      {
+        "image": "2-6.png",
+        "similarity": 0.9754018783569336
+      },
+      {
+        "image": "3-3.png",
+        "similarity": 0.9704848527908325
+      },
+      {
+        "image": "3-5.png",
+        "similarity": 0.9643281698226929
+      },
+      {
+        "image": "6-1.png",
+        "similarity": 0.9576693177223206
+      },
+      {
+        "image": "5-1.png",
+        "similarity": 0.9411194920539856
+      },
+      {
+        "image": "5-5.png",
+        "similarity": 0.931796669960022
+      },
+      {
+        "image": "6-3.png",
+        "similarity": 0.9009963870048523
+      }
+    ]
+  },
+  {
+    "query": "3-3.png",
+    "top_matches": [
+      {
+        "image": "3-1.png",
+        "similarity": 0.9966588616371155
+      },
+      {
+        "image": "3-4.png",
+        "similarity": 0.9941186308860779
+      },
+      {
+        "image": "3-2.png",
+        "similarity": 0.9890691041946411
+      },
+      {
+        "image": "2-6.png",
+        "similarity": 0.9800896644592285
+      },
+      {
+        "image": "6-1.png",
+        "similarity": 0.9696420431137085
+      },
+      {
+        "image": "3-3.png",
+        "similarity": 0.9650712609291077
+      },
+      {
+        "image": "5-1.png",
+        "similarity": 0.9501559138298035
+      },
+      {
+        "image": "3-5.png",
+        "similarity": 0.9492760896682739
+      },
+      {
+        "image": "5-5.png",
+        "similarity": 0.922520101070404
+      },
+      {
+        "image": "6-3.png",
+        "similarity": 0.9150034785270691
+      }
+    ]
+  },
+  {
+    "query": "4-1.png",
+    "top_matches": [
+      {
+        "image": "1-4.png",
+        "similarity": 0.9854656457901001
+      },
+      {
+        "image": "1-15.png",
+        "similarity": 0.9568175673484802
+      },
+      {
+        "image": "1-7.png",
+        "similarity": 0.9045642614364624
+      },
+      {
+        "image": "1-12.png",
+        "similarity": 0.8699848055839539
+      },
+      {
+        "image": "1-1.png",
+        "similarity": 0.831258237361908
+      },
+      {
+        "image": "1-2.png",
+        "similarity": 0.7809805870056152
+      },
+      {
+        "image": "1-10.png",
+        "similarity": 0.6469752192497253
+      },
+      {
+        "image": "1-14.png",
+        "similarity": 0.6009564399719238
+      },
+      {
+        "image": "1-13.png",
+        "similarity": 0.33189693093299866
+      },
+      {
+        "image": "5-7.png",
+        "similarity": 0.2936287224292755
+      }
+    ]
+  },
+  {
+    "query": "4-2.png",
+    "top_matches": [
+      {
+        "image": "5-1.png",
+        "similarity": 0.9831963181495667
+      },
+      {
+        "image": "6-1.png",
+        "similarity": 0.9756667613983154
+      },
+      {
+        "image": "3-4.png",
+        "similarity": 0.9511864185333252
+      },
+      {
+        "image": "6-3.png",
+        "similarity": 0.9461205005645752
+      },
+      {
+        "image": "6-2.png",
+        "similarity": 0.938532829284668
+      },
+      {
+        "image": "3-1.png",
+        "similarity": 0.9349148273468018
+      },
+      {
+        "image": "2-6.png",
+        "similarity": 0.9151954054832458
+      },
+      {
+        "image": "6-6.png",
+        "similarity": 0.8985987901687622
+      },
+      {
+        "image": "3-2.png",
+        "similarity": 0.881190299987793
+      },
+      {
+        "image": "2-7.png",
+        "similarity": 0.8731625080108643
+      }
+    ]
+  },
+  {
+    "query": "5-1.png",
+    "top_matches": [
+      {
+        "image": "2-5.png",
+        "similarity": 0.9559111595153809
+      },
+      {
+        "image": "4-2.png",
+        "similarity": 0.9362596273422241
+      },
+      {
+        "image": "5-3.png",
+        "similarity": 0.9085839986801147
+      },
+      {
+        "image": "5-4.png",
+        "similarity": 0.9053775668144226
+      },
+      {
+        "image": "5-6.png",
+        "similarity": 0.8943129777908325
+      },
+      {
+        "image": "2-3.png",
+        "similarity": 0.8792119026184082
+      },
+      {
+        "image": "5-2.png",
+        "similarity": 0.8648267984390259
+      },
+      {
+        "image": "1-11.png",
+        "similarity": 0.8627505302429199
+      },
+      {
+        "image": "1-8.png",
+        "similarity": 0.8551953434944153
+      },
+      {
+        "image": "5-7.png",
+        "similarity": 0.8493597507476807
+      }
+    ]
+  },
+  {
+    "query": "5-2.png",
+    "top_matches": [
+      {
+        "image": "1-9.png",
+        "similarity": 0.9305952787399292
+      },
+      {
+        "image": "2-3.png",
+        "similarity": 0.9085111618041992
+      },
+      {
+        "image": "5-2.png",
+        "similarity": 0.890664279460907
+      },
+      {
+        "image": "2-5.png",
+        "similarity": 0.8866167068481445
+      },
+      {
+        "image": "5-3.png",
+        "similarity": 0.8818938732147217
+      },
+      {
+        "image": "5-4.png",
+        "similarity": 0.8787665963172913
+      },
+      {
+        "image": "1-13.png",
+        "similarity": 0.8744512796401978
+      },
+      {
+        "image": "4-2.png",
+        "similarity": 0.8713222742080688
+      },
+      {
+        "image": "1-11.png",
+        "similarity": 0.8503595590591431
+      },
+      {
+        "image": "1-8.png",
+        "similarity": 0.8418656587600708
+      }
+    ]
+  },
+  {
+    "query": "5-3.png",
+    "top_matches": [
+      {
+        "image": "2-3.png",
+        "similarity": 0.9666947722434998
+      },
+      {
+        "image": "1-9.png",
+        "similarity": 0.9438832998275757
+      },
+      {
+        "image": "5-2.png",
+        "similarity": 0.9257094264030457
+      },
+      {
+        "image": "2-2.png",
+        "similarity": 0.9093207716941833
+      },
+      {
+        "image": "1-8.png",
+        "similarity": 0.888338565826416
+      },
+      {
+        "image": "2-5.png",
+        "similarity": 0.8796316981315613
+      },
+      {
+        "image": "5-4.png",
+        "similarity": 0.8787689208984375
+      },
+      {
+        "image": "5-3.png",
+        "similarity": 0.8603175282478333
+      },
+      {
+        "image": "1-11.png",
+        "similarity": 0.8520589470863342
+      },
+      {
+        "image": "4-2.png",
+        "similarity": 0.8467531204223633
+      }
+    ]
+  },
+  {
+    "query": "6-1.png",
+    "top_matches": [
+      {
+        "image": "2-3.png",
+        "similarity": 0.9517772197723389
+      },
+      {
+        "image": "5-4.png",
+        "similarity": 0.9218962788581848
+      },
+      {
+        "image": "2-5.png",
+        "similarity": 0.9100139141082764
+      },
+      {
+        "image": "1-9.png",
+        "similarity": 0.8837447166442871
+      },
+      {
+        "image": "5-2.png",
+        "similarity": 0.8804430961608887
+      },
+      {
+        "image": "2-2.png",
+        "similarity": 0.8720009326934814
+      },
+      {
+        "image": "5-3.png",
+        "similarity": 0.8509480953216553
+      },
+      {
+        "image": "4-2.png",
+        "similarity": 0.8311604261398315
+      },
+      {
+        "image": "1-11.png",
+        "similarity": 0.8309129476547241
+      },
+      {
+        "image": "1-8.png",
+        "similarity": 0.8248776197433472
+      }
+    ]
+  },
+  {
+    "query": "6-2.png",
+    "top_matches": [
+      {
+        "image": "6-6.png",
+        "similarity": 0.9018726944923401
+      },
+      {
+        "image": "6-4.png",
+        "similarity": 0.8976074457168579
+      },
+      {
+        "image": "6-3.png",
+        "similarity": 0.8860750198364258
+      },
+      {
+        "image": "6-5.png",
+        "similarity": 0.8761506080627441
+      },
+      {
+        "image": "2-7.png",
+        "similarity": 0.8641657829284668
+      },
+      {
+        "image": "2-4.png",
+        "similarity": 0.8583142757415771
+      },
+      {
+        "image": "2-1.png",
+        "similarity": 0.8575937747955322
+      },
+      {
+        "image": "6-2.png",
+        "similarity": 0.8544431924819946
+      },
+      {
+        "image": "5-6.png",
+        "similarity": 0.8459157943725586
+      },
+      {
+        "image": "2-5.png",
+        "similarity": 0.7679610252380371
+      }
+    ]
+  },
+  {
+    "query": "6-3.png",
+    "top_matches": [
+      {
+        "image": "2-5.png",
+        "similarity": 0.922845721244812
+      },
+      {
+        "image": "5-4.png",
+        "similarity": 0.9179686307907104
+      },
+      {
+        "image": "2-3.png",
+        "similarity": 0.9175697565078735
+      },
+      {
+        "image": "5-2.png",
+        "similarity": 0.9140183925628662
+      },
+      {
+        "image": "2-2.png",
+        "similarity": 0.900305986404419
+      },
+      {
+        "image": "5-3.png",
+        "similarity": 0.8973731994628906
+      },
+      {
+        "image": "1-9.png",
+        "similarity": 0.8818407654762268
+      },
+      {
+        "image": "4-2.png",
+        "similarity": 0.853334903717041
+      },
+      {
+        "image": "1-11.png",
+        "similarity": 0.8197770714759827
+      },
+      {
+        "image": "5-6.png",
+        "similarity": 0.8077141046524048
+      }
+    ]
+  }
+]

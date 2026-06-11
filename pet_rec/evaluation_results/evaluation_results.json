@@ -1,0 +1,61 @@
+{
+  "model_path": "pet_mobilenetv2.onnx",
+  "dataset": "test_dataset",
+  "matching_results": {
+    "top1_accuracy": 0.9047619047619048,
+    "topk_recall": {
+      "Recall@1": 0.9047619047619048,
+      "Recall@3": 0.9523809523809523,
+      "Recall@5": 1.0,
+      "Recall@10": 1.0
+    },
+    "mean_confidence": 0.9323785901069641,
+    "confidence_std": 0.04501764476299286,
+    "high_conf_accuracy": 0.9047619047619048,
+    "num_query": 21,
+    "num_gallery": 42
+  },
+  "strategy_comparison": {
+    "top1": {
+      "accuracy": 0.9047619047619048,
+      "correct": 19,
+      "total": 21
+    },
+    "threshold": {
+      "thresh_0.3": {
+        "accuracy": 0.9047619047619048,
+        "coverage": 1.0,
+        "correct": 19,
+        "valid": 21
+      },
+      "thresh_0.5": {
+        "accuracy": 0.9047619047619048,
+        "coverage": 1.0,
+        "correct": 19,
+        "valid": 21
+      },
+      "thresh_0.7": {
+        "accuracy": 0.9047619047619048,
+        "coverage": 1.0,
+        "correct": 19,
+        "valid": 21
+      },
+      "thresh_0.9": {
+        "accuracy": 0.9375,
+        "coverage": 0.7619047619047619,
+        "correct": 15,
+        "valid": 16
+      }
+    },
+    "reciprocal_nn": {
+      "accuracy": 0.5714285714285714,
+      "correct": 12,
+      "total": 21
+    }
+  },
+  "dataset_info": {
+    "num_gallery_pets": 6,
+    "num_gallery_images": 42,
+    "num_query_images": 21
+  }
+}

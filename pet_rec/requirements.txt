@@ -1,0 +1,14 @@
+# Pet Recognition - Python Dependencies
+# Install PyTorch with CUDA support first:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+torch>=2.0.0
+torchvision>=0.15.0
+timm>=0.9.0
+safetensors>=0.3.0
+Pillow>=9.0.0
+numpy>=1.21.0
+onnxruntime>=1.15.0
+opencv-python>=4.5.0
+faiss-cpu>=1.7.3
+scikit-learn>=1.0.0

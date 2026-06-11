@@ -146,8 +146,7 @@ class ColorAwareDistillationLoss(nn.Module):
             details['color_sep'] = 0.0
 
         return total if color_feat is not None and self.delta > 0 else base, details
-
-
+    
 class AttributeDistillationLoss(nn.Module):
     """多属性蒸馏损失 = 基础蒸馏 + 主色CE + 副色BCE + 花纹BCE
 
@@ -196,3 +195,98 @@ class AttributeDistillationLoss(nn.Module):
         details['total'] = total.item()
 
         return total, details
+
+
+class SupervisedContrastiveLoss(nn.Module):
+    """实例级监督对比损失 (InfoNCE)
+
+    将 batch 中每个样本视为独立类别：
+    - 正样本对：同一图片的两个不同增强视角 (view1, view2)
+    - 负样本对：batch 中所有其他图片
+
+    直接优化"不同宠物个体应远离"的目标，是解决不同宠物间
+    相似度过高的核心损失。
+
+    Args:
+        temperature: 温度系数，越小分布越尖锐（区分度越强）
+    """
+
+    def __init__(self, temperature=0.07):
+        super().__init__()
+        self.temperature = temperature
+
+    def forward(self, feat1, feat2):
+        """
+        Args:
+            feat1: (B, D) 视角1的 L2 归一化特征
+            feat2: (B, D) 视角2的 L2 归一化特征
+        Returns:
+            loss: 标量
+        """
+        B = feat1.shape[0]
+        if B < 2:
+            return torch.tensor(0.0, device=feat1.device)
+
+        # 合并两个视角: (2B, D)
+        features = torch.cat([feat1, feat2], dim=0)
+
+        # 余弦相似度矩阵 (已 L2 归一化，内积即余弦)
+        sim_matrix = features @ features.T / self.temperature  # (2B, 2B)
+
+        # 正样本对标签：
+        # feat1[i] 的正样本是 feat2[i]，feat2[i] 的正样本是 feat1[i]
+        # 即 labels[i] = i + B, labels[i + B] = i
+        labels = torch.cat([
+            torch.arange(B, 2 * B),
+            torch.arange(0, B)
+        ]).to(feat1.device)
+
+        # 排除自身对角线
+        mask_self = torch.eye(2 * B, dtype=torch.bool, device=feat1.device)
+        sim_matrix = sim_matrix.masked_fill(mask_self, -1e9)
+
+        # InfoNCE: -log(exp(sim_pos) / sum(exp(sim_all)))
+        loss = F.cross_entropy(sim_matrix, labels)
+        return loss
+
+
+class FeatureOrthogonalityLoss(nn.Module):
+    """特征正交正则化：鼓励特征维度之间去相关
+
+    防止多个维度编码冗余信息，最大化 512 维特征的信息容量，
+    使模型能够利用更多维度来编码个体区分性特征。
+
+    Args:
+        feat_dim: 特征维度（用于归一化）
+    """
+
+    def __init__(self, feat_dim=512):
+        super().__init__()
+        self.feat_dim = feat_dim
+
+    def forward(self, features):
+        """
+        Args:
+            features: (B, D) L2 归一化的特征
+        Returns:
+            loss: 标量
+        """
+        B, D = features.shape
+        if B < 2:
+            return torch.tensor(0.0, device=features.device)
+
+        # 计算相关系数矩阵
+        # 中心化
+        features_centered = features - features.mean(dim=0, keepdim=True)
+        # 协方差矩阵: (D, D)
+        cov = features_centered.T @ features_centered / (B - 1)
+        # 标准差
+        std = torch.sqrt(torch.diag(cov).clamp(min=1e-8))
+        # 相关系数矩阵
+        corr = cov / (std.unsqueeze(0) * std.unsqueeze(1))
+
+        # 只惩罚非对角线元素（即维度间的相关性）
+        mask = ~torch.eye(D, dtype=torch.bool, device=features.device)
+        loss = (corr[mask] ** 2).mean()
+
+        return loss

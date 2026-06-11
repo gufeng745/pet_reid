@@ -630,7 +630,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='宠物图片特征提取与比对')
     parser.add_argument('--folder', type=str, default=None, help='图片文件夹路径（默认 data 目录）')
     parser.add_argument('--model', choices=['mobilenetv2', 'efficientnet_b4'], default='mobilenetv2')
-    parser.add_argument('--top_k', type=int, default=5, help='检索返回数量')
+    parser.add_argument('--top_k', type=int, default=10, help='检索返回数量')
     parser.add_argument('--color_rerank', action='store_true', help='启用颜色感知重排序（需要安装 opencv-python）')
     parser.add_argument('--color_weight', type=float, default=0.3, help='颜色相似度权重 (0~1)，默认 0.3')
     args = parser.parse_args()

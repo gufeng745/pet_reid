@@ -1,0 +1,20 @@
+[
+  {
+    "query_idx": 8,
+    "query_path": "test_dataset\\query/2-2.png",
+    "gt_pet": "pet_2",
+    "pred_pet": "pet_5",
+    "pred_gallery_idx": 35,
+    "pred_gallery_path": "test_dataset\\gallery/pet_5/5-7.png",
+    "similarity": 0.9294463396072388
+  },
+  {
+    "query_idx": 9,
+    "query_path": "test_dataset\\query/2-3.png",
+    "gt_pet": "pet_2",
+    "pred_pet": "pet_5",
+    "pred_gallery_idx": 35,
+    "pred_gallery_path": "test_dataset\\gallery/pet_5/5-7.png",
+    "similarity": 0.810914158821106
+  }
+]

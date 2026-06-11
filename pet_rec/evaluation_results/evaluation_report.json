@@ -1,0 +1,16 @@
+{
+  "num_queries": 3,
+  "num_gallery": 7,
+  "feature_dim": 512,
+  "top_k": 10,
+  "mAP": 1.0,
+  "rank1_accuracy": 1.0,
+  "rank5_accuracy": 1.0,
+  "rank10_accuracy": 0.0,
+  "rank1_correct": 3,
+  "rank5_correct": 3,
+  "rank10_correct": 0,
+  "results_file": "evaluation_results\\matching_results.json",
+  "txt_dir": "data_offline",
+  "dataset_dir": "test_dataset"
+}

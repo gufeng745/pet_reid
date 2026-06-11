@@ -1,0 +1,48 @@
+# FastReID 配置文件 - 用于宠物特征提取测试
+# 基于 iter_398000_m92.36.pth 模型
+
+CUDNN_BENCHMARK: true
+
+DATALOADER:
+  NUM_WORKERS: 4
+
+INPUT:
+  SIZE_TEST:
+  - 256
+  - 128
+  # 不使用数据增强进行测试
+
+MODEL:
+  DEVICE: cpu
+  META_ARCHITECTURE: Baseline
+  # 像素归一化 (BGR 格式，与 OpenCV 一致)
+  PIXEL_MEAN:
+  - 127.5
+  - 127.5
+  - 127.5
+  PIXEL_STD:
+  - 127.5
+  - 127.5
+  - 127.5
+  # 加载预训练权重
+  WEIGHTS: iter_398000_m92.36.pth
+  BACKBONE:
+    NAME: build_yolo_v11_backbone
+    FEAT_DIM: 512
+    DEPTH: m
+    LAST_STRIDE: 1
+  HEADS:
+    NAME: EmbeddingHead
+    EMBEDDING_DIM: 512
+    POOL_LAYER: GlobalAvgPool
+    NORM: BN
+    WITH_BNNECK: true
+    NUM_CLASSES: 0  # 特征提取不需要分类头
+
+TEST:
+  IMS_PER_BATCH: 64
+  METRIC: cosine
+  FLIP:
+    ENABLED: false
+
+OUTPUT_DIR: ''

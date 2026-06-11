@@ -28,7 +28,9 @@ os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
 os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
 
 from models import DINOv3Teacher, DINOv2Teacher, MobileNetV2StudentWithAttr, TeacherAdapter
-from distillation import AttributeDistillationLoss
+from distillation import (AttributeDistillationLoss,
+                          SupervisedContrastiveLoss,
+                          FeatureOrthogonalityLoss)
 
 
 # ==================== 标签编码器 ====================
@@ -66,6 +68,101 @@ class LabelEncoder:
             return vec
         else:
             return self.class_to_idx.get(text.strip(), 0)
+
+
+def validate_dataset(image_dir, rows, encoders):
+    """验证数据集完整性
+    
+    Args:
+        image_dir: 图片目录路径
+        rows: CSV 数据行列表
+        encoders: 标签编码器字典
+    
+    Returns:
+        valid_rows: 有效的数据行列表
+        report: 验证报告字典
+    """
+    missing_images = []
+    invalid_labels = []
+    valid_rows = []
+    
+    for i, row in enumerate(rows):
+        filename = row.get('filename', f'row_{i}')
+        img_path = os.path.join(image_dir, filename)
+        
+        # 检查图片是否存在
+        if not os.path.exists(img_path):
+            missing_images.append(filename)
+            continue
+        
+        # 尝试打开图片（检查是否损坏）
+        try:
+            with Image.open(img_path) as img:
+                img.load()  # 强制加载图片数据
+        except Exception as e:
+            missing_images.append(f"{filename} (损坏：{e})")
+            continue
+        
+        # 检查标签是否有效
+        row_valid = True
+        
+        # 检查主色标签
+        color_pri = row.get('color_primary', '').strip()
+        if not color_pri:
+            invalid_labels.append((filename, 'color_primary', '空值'))
+            row_valid = False
+        elif color_pri not in encoders['color_primary'].class_to_idx:
+            invalid_labels.append((filename, 'color_primary', f'未知类别：{color_pri}'))
+            row_valid = False
+        
+        # 检查花纹标签
+        pattern = row.get('pattern', '').strip()
+        if not pattern:
+            invalid_labels.append((filename, 'pattern', '空值'))
+            row_valid = False
+        else:
+            # 检查多标签中的每个值
+            for item in pattern.split(','):
+                item = item.strip()
+                if item and item not in encoders['pattern'].class_to_idx:
+                    invalid_labels.append((filename, 'pattern', f'未知类别：{item}'))
+                    row_valid = False
+                    break
+        
+        if row_valid:
+            valid_rows.append(row)
+        else:
+            missing_images.append(f"{filename} (标签无效)")
+    
+    # 生成报告
+    report = {
+        'total': len(rows),
+        'valid': len(valid_rows),
+        'missing_images': len(missing_images),
+        'invalid_labels': len(invalid_labels),
+        'missing_image_list': missing_images,
+        'invalid_label_list': invalid_labels,
+    }
+    
+    # 输出报告摘要
+    print("\n" + "=" * 50)
+    print("数据集验证报告")
+    print("=" * 50)
+    print(f"总样本数：{report['total']}")
+    print(f"有效样本：{report['valid']} ({report['valid']/report['total']*100:.1f}%)")
+    print(f"缺失/损坏图片：{report['missing_images']}")
+    print(f"无效标签：{report['invalid_labels']}")
+    
+    if missing_images:
+        print(f"\n缺失/无效文件列表 (前 20 个):")
+        for f in missing_images[:20]:
+            print(f"  - {f}")
+        if len(missing_images) > 20:
+            print(f"  ... 还有 {len(missing_images) - 20} 个")
+    
+    print("=" * 50 + "\n")
+    
+    return valid_rows, report
 
 
 def build_label_encoders(csv_path):
@@ -175,15 +272,44 @@ def train(args):
     print(f"Device: {device}")
 
     # === 加载标签 ===
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'annotations..csv')
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'annotations.csv')
     if not os.path.exists(csv_path):
         print(f"错误：找不到标注文件 {csv_path}")
         return
 
     encoders, rows = build_label_encoders(csv_path)
+    
+    # === 数据验证 ===
+    image_dir = find_image_dir()
+    print(f"\n正在验证数据集...")
+    valid_rows, report = validate_dataset(image_dir, rows, encoders)
+    
+    # 保存验证报告
+    if args.save_report:
+        report_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data_validation_report.json')
+        # 将列表转换为可序列化的格式（限制长度）
+        save_report = {
+            'total': report['total'],
+            'valid': report['valid'],
+            'missing_images': report['missing_images'],
+            'invalid_labels': report['invalid_labels'],
+            'missing_image_list': report['missing_image_list'][:100],  # 限制保存数量
+            'invalid_label_list': [list(x) for x in report['invalid_label_list'][:100]],
+        }
+        import json
+        with open(report_path, 'w', encoding='utf-8') as f:
+            json.dump(save_report, f, ensure_ascii=False, indent=2)
+        print(f"验证报告已保存到：{report_path}")
+    
+    if report['valid'] == 0:
+        print("错误：没有有效样本，无法继续训练")
+        return
+    
+    rows = valid_rows  # 使用验证后的有效数据
+    
     num_colors = encoders['color_primary'].num_classes
     num_patterns = encoders['pattern'].num_classes
-    print(f"样本数: {len(rows)}, 颜色类: {num_colors}, 花纹类: {num_patterns}")
+    print(f"样本数：{len(rows)}, 颜色类：{num_colors}, 花纹类：{num_patterns}")
 
     # === 划分 train/val ===
     val_size = int(len(rows) * 0.1)
@@ -195,7 +321,6 @@ def train(args):
     print(f"Train: {train_size}, Val: {val_size}")
 
     # === 数据集 ===
-    image_dir = find_image_dir()
     train_dataset = AttrPetDataset(image_dir, list(train_rows), encoders)
     val_dataset = AttrPetDataset(image_dir, list(val_rows), encoders)
 
@@ -234,6 +359,8 @@ def train(args):
         lambda_color_sec=args.lambda_color_sec,
         lambda_pattern=args.lambda_pattern,
     )
+    criterion_contrastive = SupervisedContrastiveLoss(temperature=args.contrastive_temp)
+    criterion_ortho = FeatureOrthogonalityLoss(feat_dim=args.proj_dim)
 
     # === 优化器（双学习率） ===
     optimizer = AdamW([
@@ -260,7 +387,7 @@ def train(args):
     for epoch in range(args.epochs):
         student.train()
         adapter.train()
-        loss_keys = ['total', 'align', 'sim', 'uniform', 'color_pri', 'color_sec', 'pattern']
+        loss_keys = ['total', 'align', 'sim', 'uniform', 'color_pri', 'color_sec', 'pattern', 'contrastive', 'ortho']
         epoch_losses = {k: 0.0 for k in loss_keys}
         t0 = time.time()
 
@@ -283,14 +410,28 @@ def train(args):
             # Loss (双向平均)
             loss1, d1 = criterion(t1, emb1, adapter, cp1, cs1, pa1, color_pri, color_sec, pattern)
             loss2, d2 = criterion(t2, emb2, adapter, cp2, cs2, pa2, color_pri, color_sec, pattern)
-            loss = (loss1 + loss2) / 2
+
+            # 实例对比损失：同一图片的两个视角应接近，不同图片应远离
+            loss_con = criterion_contrastive(emb1, emb2)
+
+            # 特征正交正则化：鼓励特征维度去相关
+            loss_orth = criterion_ortho(emb1)
+
+            loss = (loss1 + loss2) / 2 + args.lambda_contrastive * loss_con + args.lambda_ortho * loss_orth
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             for k in epoch_losses:
-                epoch_losses[k] += (d1[k] + d2[k]) / 2
+                if k == 'total':
+                    epoch_losses[k] += loss.item()
+                elif k == 'contrastive':
+                    epoch_losses[k] += loss_con.item()
+                elif k == 'ortho':
+                    epoch_losses[k] += loss_orth.item()
+                else:
+                    epoch_losses[k] += (d1[k] + d2[k]) / 2
 
             if (batch_idx + 1) % args.log_interval == 0:
                 avg = {k: v / (batch_idx + 1) for k, v in epoch_losses.items()}
@@ -298,7 +439,8 @@ def train(args):
                       f"loss={avg['total']:.4f} align={avg['align']:.4f} "
                       f"sim={avg['sim']:.4f} uniform={avg['uniform']:.4f} "
                       f"color_pri={avg['color_pri']:.4f} color_sec={avg['color_sec']:.4f} "
-                      f"pattern={avg['pattern']:.4f}")
+                      f"pattern={avg['pattern']:.4f} "
+                      f"contrastive={avg['contrastive']:.4f} ortho={avg['ortho']:.4f}")
 
         scheduler.step()
         avg_loss = epoch_losses['total'] / len(train_loader)
@@ -308,7 +450,8 @@ def train(args):
               f"loss={avg_loss:.4f} | lr={lr:.6f}")
 
         # === 验证 ===
-        val_loss = validate(student, adapter, teacher, val_loader, criterion, device)
+        val_loss = validate(student, adapter, teacher, val_loader, criterion,
+                           criterion_contrastive, args.lambda_contrastive, device)
         print(f"  Val loss: {val_loss:.4f}")
 
         # === 保存 checkpoint ===
@@ -332,16 +475,23 @@ def train(args):
             }, path)
             print(f"  Saved: {path}")
 
-    # 保存最终模型（只保留推理需要的权重）
+    # 保存最终模型（包含编码器信息，便于后续加载）
     final_path = os.path.join(ckpt_dir, 'final_student_attr.pth')
-    torch.save(student.state_dict(), final_path)
+    torch.save({
+        'student': student.state_dict(),
+        'encoders': {
+            'color_classes': encoders['color_primary'].classes,
+            'pattern_classes': encoders['pattern'].classes,
+        },
+    }, final_path)
     print(f"\nTraining complete. Best val loss: {best_loss:.4f}")
     print(f"Final student: {final_path}")
     return student
 
 
 @torch.no_grad()
-def validate(student, adapter, teacher, val_loader, criterion, device):
+def validate(student, adapter, teacher, val_loader, criterion, criterion_contrastive,
+             lambda_contrastive, device):
     """验证"""
     student.eval()
     adapter.eval()
@@ -357,7 +507,10 @@ def validate(student, adapter, teacher, val_loader, criterion, device):
 
         t1 = teacher(view1)
         emb1, cp1, cs1, pa1 = student(view1)
+        emb2, _, _, _ = student(view2)
         loss, _ = criterion(t1, emb1, adapter, cp1, cs1, pa1, color_pri, color_sec, pattern)
+        loss_con = criterion_contrastive(emb1, emb2)
+        loss = loss + lambda_contrastive * loss_con
         total_loss += loss.item() * view1.size(0)
         count += view1.size(0)
 
@@ -370,7 +523,7 @@ def parse_args():
     p = argparse.ArgumentParser(description='多属性感知宠物模型训练')
     p.add_argument('--epochs', type=int, default=50)
     p.add_argument('--batch_size', type=int, default=64)
-    p.add_argument('--num_workers', type=int, default=0)
+    p.add_argument('--num_workers', type=int, default=4)
     p.add_argument('--lr_backbone', type=float, default=5e-4)
     p.add_argument('--lr_head', type=float, default=1e-3)
     p.add_argument('--weight_decay', type=float, default=0.04)
@@ -382,8 +535,12 @@ def parse_args():
     p.add_argument('--lambda_color_pri', type=float, default=0.2, help='主色分类损失权重')
     p.add_argument('--lambda_color_sec', type=float, default=0.15, help='副色分类损失权重（多标签）')
     p.add_argument('--lambda_pattern', type=float, default=0.15, help='花纹分类损失权重（多标签）')
+    p.add_argument('--lambda_contrastive', type=float, default=0.5, help='实例对比损失权重（降低不同宠物相似度）')
+    p.add_argument('--lambda_ortho', type=float, default=0.05, help='特征正交正则化权重（增加特征多样性）')
+    p.add_argument('--contrastive_temp', type=float, default=0.07, help='对比损失温度系数（越小区分度越强）')
     p.add_argument('--save_interval', type=int, default=10)
     p.add_argument('--log_interval', type=int, default=10)
+    p.add_argument('--save_report', action='store_true', default=True, help='保存数据验证报告')
     return p.parse_args()
 
 
