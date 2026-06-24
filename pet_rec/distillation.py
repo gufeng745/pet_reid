@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 
 def cosine_alignment_loss(teacher_feat, student_feat):
@@ -288,5 +289,191 @@ class FeatureOrthogonalityLoss(nn.Module):
         # 只惩罚非对角线元素（即维度间的相关性）
         mask = ~torch.eye(D, dtype=torch.bool, device=features.device)
         loss = (corr[mask] ** 2).mean()
+
+        return loss
+
+
+# ==================== Label Smoothing ====================
+
+class LabelSmoothingCE(nn.Module):
+    """Label Smoothing Cross Entropy
+
+    防止模型对相似类别过度自信，提升泛化能力。
+    将硬标签 (one-hot) 软化为软标签，避免 logits 过大。
+
+    Args:
+        smoothing: 平滑系数，默认 0.1
+    """
+
+    def __init__(self, smoothing=0.1):
+        super().__init__()
+        self.smoothing = smoothing
+
+    def forward(self, pred, target):
+        """
+        Args:
+            pred: (B, C) 预测 logits
+            target: (B,) 真实标签 (long)
+        Returns:
+            loss: 标量
+        """
+        n_classes = pred.size(-1)
+        log_probs = F.log_softmax(pred, dim=-1)
+
+        # 构建平滑标签
+        with torch.no_grad():
+            smooth_labels = torch.full_like(log_probs, self.smoothing / (n_classes - 1))
+            smooth_labels.scatter_(1, target.unsqueeze(1), 1.0 - self.smoothing)
+
+        loss = (-smooth_labels * log_probs).sum(dim=-1).mean()
+        return loss
+
+
+class FocalLoss(nn.Module):
+    """Focal Loss for Hard Example Mining
+
+    解决类别不平衡问题，聚焦于难分类样本。
+    通过降低易分类样本的权重，增加难分类样本的权重。
+
+    Args:
+        alpha: 类别权重，默认 0.25
+        gamma: 聚焦参数，默认 2.0
+    """
+
+    def __init__(self, alpha=0.25, gamma=2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, inputs, targets):
+        """
+        Args:
+            inputs: (B, C) 预测 logits
+            targets: (B,) 真实标签 (long)
+        Returns:
+            loss: 标量
+        """
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+        return focal_loss.mean()
+
+
+# ==================== Circle Loss ====================
+
+class CircleLoss(nn.Module):
+    """Circle Loss for Metric Learning
+
+    相比 Triplet Loss 和 Contrastive Loss，Circle Loss 具有：
+    1. 更平滑的优化目标
+    2. 更灵活的权重自适应
+    3. 更清晰的收敛边界
+
+    Args:
+        m: 边界参数，默认 0.25
+        gamma: 缩放参数，默认 256
+    """
+
+    def __init__(self, m=0.25, gamma=256):
+        super().__init__()
+        self.m = m
+        self.gamma = gamma
+        self.soft_plus = nn.Softplus()
+
+    def forward(self, features, labels):
+        """
+        Args:
+            features: (B, D) L2 归一化的特征
+            labels: (B,) 标签 (long)
+        Returns:
+            loss: 标量
+        """
+        # 计算余弦相似度矩阵
+        sim_matrix = features @ features.T  # (B, B)
+
+        # 构建正负样本掩码
+        labels = labels.unsqueeze(1)
+        pos_mask = (labels == labels.T).float()
+        neg_mask = 1.0 - pos_mask
+
+        # 排除对角线
+        eye_mask = torch.eye(features.size(0), device=features.device)
+        pos_mask = pos_mask - eye_mask
+        neg_mask = neg_mask
+
+        # 正负样本相似度
+        s_p = sim_matrix * pos_mask
+        s_n = sim_matrix * neg_mask
+
+        # 计算 alpha 权重
+        alpha_p = torch.clamp_min(-s_p.detach() + 1 + self.m, min=0.)
+        alpha_n = torch.clamp_min(s_n.detach() + self.m, min=0.)
+
+        # 计算 delta
+        delta_p = 1 - self.m
+        delta_n = self.m
+
+        # Circle Loss
+        logit_p = -self.gamma * alpha_p * (s_p - delta_p) * pos_mask
+        logit_n = self.gamma * alpha_n * (s_n - delta_n) * neg_mask
+
+        loss = self.soft_plus(torch.logsumexp(logit_n, dim=1) + torch.logsumexp(logit_p, dim=1)).mean()
+
+        return loss
+
+
+class ArcFaceLoss(nn.Module):
+    """ArcFace Loss (Additive Angular Margin Loss)
+
+    在超球面上添加角度边界，使类内更紧凑，类间更分离。
+    是 Re-ID 任务的标准损失函数之一。
+
+    Args:
+        feat_dim: 特征维度
+        num_classes: 类别数
+        margin: 角度边界，默认 0.5
+        scale: 缩放因子，默认 64
+    """
+
+    def __init__(self, feat_dim, num_classes, margin=0.5, scale=64):
+        super().__init__()
+        self.feat_dim = feat_dim
+        self.num_classes = num_classes
+        self.margin = margin
+        self.scale = scale
+
+        # 可学习的分类器权重
+        self.weight = nn.Parameter(torch.FloatTensor(num_classes, feat_dim))
+        nn.init.xavier_uniform_(self.weight)
+
+    def forward(self, features, labels):
+        """
+        Args:
+            features: (B, D) L2 归一化的特征
+            labels: (B,) 标签 (long)
+        Returns:
+            loss: 标量
+        """
+        # L2 归一化权重
+        weight_norm = F.normalize(self.weight, p=2, dim=1)
+
+        # 计算余弦相似度
+        cosine = F.linear(features, weight_norm)  # (B, num_classes)
+
+        # 计算角度
+        sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
+        phi = cosine * math.cos(self.margin) - sine * math.sin(self.margin)
+
+        # 只对正确类别添加角度边界
+        one_hot = torch.zeros_like(cosine)
+        one_hot.scatter_(1, labels.unsqueeze(1), 1.0)
+
+        output = (one_hot * phi) + ((1.0 - one_hot) * cosine)
+
+        # 缩放
+        output *= self.scale
+
+        # Cross Entropy Loss
+        loss = F.cross_entropy(output, labels)
 
         return loss
