@@ -1,5 +1,4 @@
 # Data files
-*.zip
 data/
 data_cat/
 data_offline/
