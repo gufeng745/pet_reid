@@ -517,6 +517,31 @@ def train(args):
         proj_dim=args.proj_dim, num_classes=num_classes,
         use_se=args.use_se, use_bnneck=args.use_bnneck
     ).to(device)
+
+    # 加载预训练属性模型（如果指定）
+    if args.pretrained_attr and os.path.exists(args.pretrained_attr):
+        print(f"\n加载预训练属性模型: {args.pretrained_attr}")
+        attr_ckpt = torch.load(args.pretrained_attr, map_location='cpu', weights_only=True)
+        if 'student' in attr_ckpt:
+            attr_state = attr_ckpt['student']
+        else:
+            attr_state = attr_ckpt
+
+        # 迁移 backbone 和 projector 权重
+        student_state = student.state_dict()
+        transferred_keys = []
+
+        for key in attr_state:
+            if key in student_state and attr_state[key].shape == student_state[key].shape:
+                student_state[key] = attr_state[key]
+                transferred_keys.append(key)
+
+        student.load_state_dict(student_state, strict=False)
+        print(f"迁移了 {len(transferred_keys)} 个层的权重:")
+        print(f"  - backbone: {len([k for k in transferred_keys if 'backbone' in k])} 个")
+        print(f"  - projector: {len([k for k in transferred_keys if 'projector' in k])} 个")
+        print(f"  - 其他: {len([k for k in transferred_keys if 'backbone' not in k and 'projector' not in k])} 个")
+
     adapter = TeacherAdapter(teacher_dim=384, student_dim=args.proj_dim).to(device)
 
     print(f"Student: MobileNetV2 ({sum(p.numel() for p in student.parameters())/1e6:.1f}M params)")
@@ -804,6 +829,10 @@ def parse_args():
     p.add_argument('--epochs', type=int, default=80)
     p.add_argument('--batch_size', type=int, default=64)  # 用于验证
     p.add_argument('--num_workers', type=int, default=4)
+
+    # 预训练模型
+    p.add_argument('--pretrained_attr', type=str, default=None,
+                   help='预训练属性模型路径（用于迁移 backbone 和 projector）')
 
     # 数据集划分
     p.add_argument('--val_ratio', type=float, default=0.1, help='验证集比例（按 ID 划分）')
