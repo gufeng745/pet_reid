@@ -1,17 +1,11 @@
-# Checkpoints
-checkpoints/
-*.pth
-
 # Data files
 *.zip
 data/
 data_cat/
 data_offline/
-reid_dataset/
 
 # Large model files
 *.onnx
-iter_*.pth
 
 # Logs
 run_log.txt
