@@ -3,6 +3,7 @@ import sys
 import torch
 import numpy as np
 from models import MobileNetV2Student, MobileNetV2StudentWithAttr
+from train_reid import MobileNetV2StudentForReID
 
 
 def export_onnx(student_path, proj_dim=512, output_dir=None):
@@ -122,6 +123,78 @@ def export_onnx_attr(student_path, proj_dim=512, output_dir=None):
     return fp32_path
 
 
+def export_onnx_reid(student_path, proj_dim=512, num_classes=82, output_dir=None):
+    """导出 MobileNetV2StudentForReID 到 ONNX（只导出特征提取部分，512 维）"""
+    if output_dir is None:
+        output_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Load student
+    model = MobileNetV2StudentForReID(proj_dim=proj_dim, num_classes=num_classes)
+    ckpt = torch.load(student_path, map_location='cpu', weights_only=True)
+    if isinstance(ckpt, dict) and 'student' in ckpt:
+        model.load_state_dict(ckpt['student'])
+        # 从 checkpoint 获取 num_classes
+        if 'num_classes' in ckpt:
+            num_classes = ckpt['num_classes']
+            print(f"从 checkpoint 获取 num_classes: {num_classes}")
+    else:
+        model.load_state_dict(ckpt)
+    model.eval()
+
+    # 创建只调用 forward_emb 的包装器类
+    class ForwardEmbWrapper(torch.nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+        def forward(self, x):
+            return self.model.forward_emb(x)
+
+    wrapper = ForwardEmbWrapper(model)
+
+    # Export FP32 with fixed batch size
+    fp32_path = os.path.join(output_dir, 'pet_mobilenetv2_reid.onnx')
+    dummy = torch.randn(1, 3, 224, 224)
+    torch.onnx.export(
+        wrapper, dummy, fp32_path,
+        input_names=['image'],
+        output_names=['features'],
+        opset_version=13,
+        dynamo=False,
+    )
+    fp32_size = os.path.getsize(fp32_path) / (1024 * 1024)
+    print(f"FP32 ONNX: {fp32_path} ({fp32_size:.1f} MB)")
+
+    # 验证 ONNX 输出形状
+    try:
+        import onnxruntime as ort
+        sess = ort.InferenceSession(fp32_path)
+        out_shape = sess.get_outputs()[0].shape
+        print(f"ONNX 输出形状: {out_shape}")
+        if out_shape != [1, 512]:
+            print(f"WARNING: 输出形状不是 [1, 512]，而是 {out_shape}")
+    except Exception as e:
+        print(f"ONNX 验证跳过: {e}")
+
+    # INT8 dynamic quantization
+    try:
+        from onnxruntime.quantization import quantize_dynamic, QuantType
+        int8_path = os.path.join(output_dir, 'pet_mobilenetv2_reid_int8.onnx')
+        quantize_dynamic(
+            model_input=fp32_path,
+            model_output=int8_path,
+            weight_type=QuantType.QInt8,
+        )
+        int8_size = os.path.getsize(int8_path) / (1024 * 1024)
+        print(f"INT8 ONNX:  {int8_path} ({int8_size:.1f} MB)")
+
+        # Verify quality
+        verify_quantization(fp32_path, int8_path)
+    except ImportError:
+        print("onnxruntime.quantization 不可用，跳过 INT8 量化")
+
+    return fp32_path
+
+
 def verify_quantization(fp32_path, int8_path, num_samples=20):
     """验证量化前后特征一致性"""
     import onnxruntime as ort
@@ -178,11 +251,14 @@ def benchmark_latency(onnx_path, num_runs=100):
 
 if __name__ == '__main__':
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-    
-    # 检查是否是 attr 模型
+
+    # 检查模型类型
     ckpt_path = sys.argv[1] if len(sys.argv) > 1 else 'checkpoints/best_student.pth'
-    
-    if 'attr' in ckpt_path.lower():
+
+    if 'reid' in ckpt_path.lower():
+        print(f"导出 Re-ID 模型：{ckpt_path}")
+        fp32_path = export_onnx_reid(ckpt_path)
+    elif 'attr' in ckpt_path.lower():
         print(f"导出 Attr 模型：{ckpt_path}")
         fp32_path = export_onnx_attr(ckpt_path)
     else:

@@ -5,7 +5,6 @@ data_cat/
 data_offline/
 
 # Large model files
-*.onnx
 
 # Logs
 run_log.txt
