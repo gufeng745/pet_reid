@@ -128,15 +128,34 @@ def export_onnx_reid(student_path, proj_dim=512, num_classes=82, output_dir=None
     if output_dir is None:
         output_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Load student
-    model = MobileNetV2StudentForReID(proj_dim=proj_dim, num_classes=num_classes)
+    # 先加载 checkpoint 获取参数
     ckpt = torch.load(student_path, map_location='cpu', weights_only=True)
+
+    # 从 checkpoint 获取 num_classes 和 args
+    if isinstance(ckpt, dict) and 'num_classes' in ckpt:
+        num_classes = ckpt['num_classes']
+        print(f"从 checkpoint 获取 num_classes: {num_classes}")
+    if isinstance(ckpt, dict) and 'args' in ckpt:
+        args = ckpt.get('args', {})
+        proj_dim = args.get('proj_dim', proj_dim)
+        use_se = args.get('use_se', True)
+        use_bnneck = args.get('use_bnneck', True)
+        print(f"从 checkpoint 获取参数: proj_dim={proj_dim}, use_se={use_se}, use_bnneck={use_bnneck}")
+    else:
+        use_se = True
+        use_bnneck = True
+
+    # 创建模型（使用 checkpoint 中的参数）
+    model = MobileNetV2StudentForReID(
+        proj_dim=proj_dim,
+        num_classes=num_classes,
+        use_se=use_se,
+        use_bnneck=use_bnneck
+    )
+
+    # 加载权重
     if isinstance(ckpt, dict) and 'student' in ckpt:
         model.load_state_dict(ckpt['student'])
-        # 从 checkpoint 获取 num_classes
-        if 'num_classes' in ckpt:
-            num_classes = ckpt['num_classes']
-            print(f"从 checkpoint 获取 num_classes: {num_classes}")
     else:
         model.load_state_dict(ckpt)
     model.eval()

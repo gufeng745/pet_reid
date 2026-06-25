@@ -199,14 +199,11 @@ class AttributeDistillationLoss(nn.Module):
 
 
 class SupervisedContrastiveLoss(nn.Module):
-    """实例级监督对比损失 (InfoNCE)
+    """监督对比损失 (Supervised Contrastive Learning)
 
-    将 batch 中每个样本视为独立类别：
-    - 正样本对：同一图片的两个不同增强视角 (view1, view2)
-    - 负样本对：batch 中所有其他图片
-
-    直接优化"不同宠物个体应远离"的目标，是解决不同宠物间
-    相似度过高的核心损失。
+    支持两种模式：
+    1. 自监督模式：输入 (feat1, feat2)，正样本对是同一图片的两个视角
+    2. 监督模式：输入 (features, labels)，正样本对是同一身份的不同图片
 
     Args:
         temperature: 温度系数，越小分布越尖锐（区分度越强）
@@ -216,14 +213,56 @@ class SupervisedContrastiveLoss(nn.Module):
         super().__init__()
         self.temperature = temperature
 
-    def forward(self, feat1, feat2):
+    def forward(self, feat1, feat2_or_labels):
         """
         Args:
-            feat1: (B, D) 视角1的 L2 归一化特征
-            feat2: (B, D) 视角2的 L2 归一化特征
+            feat1: (B, D) L2 归一化特征
+            feat2_or_labels: (B, D) 视角2的特征（自监督）或 (B,) 标签（监督）
         Returns:
             loss: 标量
         """
+        # 判断是监督模式还是自监督模式
+        if feat2_or_labels.dim() == 1:
+            # 监督模式：feat1 是特征，feat2_or_labels 是标签
+            return self._forward_supervised(feat1, feat2_or_labels)
+        else:
+            # 自监督模式：feat1 和 feat2_or_labels 是两个视角的特征
+            return self._forward_self_supervised(feat1, feat2_or_labels)
+
+    def _forward_supervised(self, features, labels):
+        """监督模式：同一身份的样本互为正样本对"""
+        B = features.shape[0]
+        if B < 2:
+            return torch.tensor(0.0, device=features.device)
+
+        # 余弦相似度矩阵
+        sim_matrix = features @ features.T / self.temperature  # (B, B)
+
+        # 构建正样本掩码：同一身份的样本对
+        labels = labels.unsqueeze(1)
+        pos_mask = (labels == labels.T).float()
+        eye_mask = torch.eye(B, dtype=torch.bool, device=features.device)
+        pos_mask = pos_mask - eye_mask.float()  # 排除自身
+
+        # 排除自身对角线
+        sim_matrix = sim_matrix.float().masked_fill(eye_mask, -1e4)
+
+        # 对于每个 anchor，计算 InfoNCE
+        # loss = -log(exp(sim_pos) / sum(exp(sim_all)))
+        # 使用 log-sum-exp 技巧避免数值溢出
+        exp_sim = torch.exp(sim_matrix)
+        pos_sim = (exp_sim * pos_mask).sum(dim=1)  # (B,)
+        all_sim = exp_sim.sum(dim=1)  # (B,)
+
+        # 避免除零
+        pos_sim = pos_sim.clamp(min=1e-8)
+        all_sim = all_sim.clamp(min=1e-8)
+
+        loss = -torch.log(pos_sim / all_sim).mean()
+        return loss
+
+    def _forward_self_supervised(self, feat1, feat2):
+        """自监督模式：同一图片的两个视角互为正样本对"""
         B = feat1.shape[0]
         if B < 2:
             return torch.tensor(0.0, device=feat1.device)
@@ -231,22 +270,21 @@ class SupervisedContrastiveLoss(nn.Module):
         # 合并两个视角: (2B, D)
         features = torch.cat([feat1, feat2], dim=0)
 
-        # 余弦相似度矩阵 (已 L2 归一化，内积即余弦)
+        # 余弦相似度矩阵
         sim_matrix = features @ features.T / self.temperature  # (2B, 2B)
 
         # 正样本对标签：
         # feat1[i] 的正样本是 feat2[i]，feat2[i] 的正样本是 feat1[i]
-        # 即 labels[i] = i + B, labels[i + B] = i
         labels = torch.cat([
             torch.arange(B, 2 * B),
             torch.arange(0, B)
         ]).to(feat1.device)
 
-        # 排除自身对角线（使用 float32 避免 AMP 下溢出）
+        # 排除自身对角线
         mask_self = torch.eye(2 * B, dtype=torch.bool, device=feat1.device)
         sim_matrix = sim_matrix.float().masked_fill(mask_self, -1e4)
 
-        # InfoNCE: -log(exp(sim_pos) / sum(exp(sim_all)))
+        # InfoNCE
         loss = F.cross_entropy(sim_matrix, labels)
         return loss
 
