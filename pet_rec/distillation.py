@@ -242,9 +242,9 @@ class SupervisedContrastiveLoss(nn.Module):
             torch.arange(0, B)
         ]).to(feat1.device)
 
-        # 排除自身对角线
+        # 排除自身对角线（使用 float32 避免 AMP 下溢出）
         mask_self = torch.eye(2 * B, dtype=torch.bool, device=feat1.device)
-        sim_matrix = sim_matrix.masked_fill(mask_self, -1e9)
+        sim_matrix = sim_matrix.float().masked_fill(mask_self, -1e4)
 
         # InfoNCE: -log(exp(sim_pos) / sum(exp(sim_all)))
         loss = F.cross_entropy(sim_matrix, labels)

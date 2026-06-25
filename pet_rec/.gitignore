@@ -1,0 +1,33 @@
+# Checkpoints
+checkpoints/
+*.pth
+
+# Data files
+*.zip
+data/
+data_cat/
+data_offline/
+reid_dataset/
+
+# Large model files
+*.onnx
+iter_*.pth
+
+# Logs
+run_log.txt
+*.log
+
+# Reports
+data_validation_report.json
+
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
