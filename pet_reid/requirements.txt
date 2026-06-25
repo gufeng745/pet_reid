@@ -1,0 +1,22 @@
+# Pet Re-ID 依赖包
+
+# PyTorch
+torch>=2.0.0
+torchvision>=0.15.0
+
+# 预训练模型
+timm>=0.9.0
+
+# 数据处理
+numpy>=1.24.0
+Pillow>=9.5.0
+scikit-learn>=1.2.0
+
+# ONNX (可选)
+onnxruntime>=1.15.0
+onnx>=1.14.0
+onnxsim>=0.4.0
+
+# 可视化 (可选)
+matplotlib>=3.7.0
+tensorboard>=2.14.0
