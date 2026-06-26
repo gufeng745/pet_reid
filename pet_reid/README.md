@@ -2,6 +2,22 @@
 
 基于DINOv3自监督学习的宠物Re-ID特征提取系统
 
+## 📦 快速下载
+
+### 轻量级版本（仅代码）
+- 文件: `pet_reid_lightweight.zip` (74KB)
+- 包含: 完整代码 + 文档
+- 不包含: 模型文件、日志
+
+### 完整版本（代码+模型）
+- 文件: `pet_reid_full.zip` (90MB)
+- 包含: 完整代码 + 预训练模型 + 训练日志
+- 下载链接: [待上传到云存储]
+
+### 单独下载模型
+- PyTorch模型: `checkpoints/dino/best_dino.pth` (97MB)
+- ONNX模型: `outputs/onnx/best_dino.onnx` (47MB)
+
 ## 📋 项目概述
 
 本项目实现了一个完整的宠物重识别(Re-ID)系统，采用两阶段训练策略：
