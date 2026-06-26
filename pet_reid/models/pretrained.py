@@ -26,13 +26,14 @@ from pathlib import Path
 
 # 预训练模型注册表
 PRETRAINED_MODELS = {
-    # DINOv3预训练模型
+    # DINOv3预训练模型（在ImageNet基础上训练）
     'dino_mobilenetv3_large': {
         'file': 'best_dino.pth',
         'dir': 'dino',
-        'description': 'DINOv3预训练的MobileNetV3-Large (512维)',
+        'description': 'DINOv3预训练的MobileNetV3-Large (512维宠物特征)',
         'backbone': 'mobilenetv3_large_100',
         'proj_dim': 512,
+        'note': '在ImageNet预训练基础上，使用宠物数据自监督训练',
     },
     'dino_mobilenetv3_small': {
         'file': 'best_dino.pth',
@@ -40,23 +41,36 @@ PRETRAINED_MODELS = {
         'description': 'DINOv3预训练的MobileNetV3-Small',
         'backbone': 'mobilenetv3_small_100',
         'proj_dim': 512,
+        'note': '在ImageNet预训练基础上，使用宠物数据自监督训练',
     },
 
-    # ImageNet预训练模型（通过timm自动下载）
+    # ImageNet预训练模型（原始预训练权重）
     'imagenet_mobilenetv3_large': {
         'source': 'timm',
         'model_name': 'mobilenetv3_large_100',
-        'description': 'ImageNet预训练的MobileNetV3-Large',
+        'description': 'ImageNet预训练的MobileNetV3-Large (1280维通用特征)',
+        'note': '原始ImageNet预训练权重，通用图像特征',
     },
     'imagenet_mobilenetv3_small': {
         'source': 'timm',
         'model_name': 'mobilenetv3_small_100',
         'description': 'ImageNet预训练的MobileNetV3-Small',
+        'note': '原始ImageNet预训练权重，通用图像特征',
     },
     'imagenet_efficientnet_b0': {
         'source': 'timm',
         'model_name': 'efficientnet_b0',
         'description': 'ImageNet预训练的EfficientNet-B0',
+        'note': '原始ImageNet预训练权重，通用图像特征',
+    },
+
+    # 本地ImageNet预训练模型
+    'local_mobilenetv3_large': {
+        'file': 'mobilenetv3_large_100_ra-f55367b5.pth',
+        'dir': 'imagenet',
+        'description': '本地MobileNetV3-Large ImageNet预训练权重',
+        'backbone': 'mobilenetv3_large_100',
+        'note': '从timm缓存或手动下载的ImageNet权重',
     },
 }
 
