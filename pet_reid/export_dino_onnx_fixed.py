@@ -116,6 +116,30 @@ def export_onnx_fixed(
         # 不使用dynamic_axes，保持固定形状
     )
 
+    # 合并外部数据到单个文件（如果存在.data文件）
+    data_file = output_path + '.data'
+    if os.path.exists(data_file):
+        print(f"\nMerging external data into single file...")
+        import onnx
+
+        # 加载模型
+        onnx_model = onnx.load(output_path)
+
+        # 将外部数据转换为tensor
+        from onnx.external_data_helper import convert_model_to_external_data
+        # 反向操作：将外部数据加载回来
+        for tensor in onnx_model.graph.initializer:
+            if tensor.data_location == 1:  #EXTERNAL
+                tensor.data_location = 0  #DEFAULT
+                # 数据已经在onnx_model中了
+
+        # 保存为单个文件
+        onnx.save(onnx_model, output_path)
+
+        # 删除.data文件
+        os.remove(data_file)
+        print(f"[OK] Merged into single file: {output_path}")
+
     # 验证ONNX模型
     print("\nVerifying ONNX model...")
     try:
