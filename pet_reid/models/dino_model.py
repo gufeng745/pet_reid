@@ -4,6 +4,8 @@ DINOv3 自监督模型
 实现DINOv3的自蒸馏机制：
 - Student: CNN backbone + 投影头 + 预测头
 - Teacher: CNN backbone + 投影头 (EMA更新)
+
+支持MAE预处理：Student看遮盖后的图像，Teacher看原始图像
 """
 
 import torch
@@ -12,6 +14,55 @@ import torch.nn.functional as F
 import copy
 from typing import Optional, Tuple
 from .backbone import CNNBackbone
+
+
+class MAEMaskGenerator:
+    """MAE 遮盖生成器
+
+    生成随机的patch遮盖mask，
+    用于DINO+MAE混合训练。
+
+    Args:
+        mask_ratio: 遮盖比例 (0-1)
+        patch_size: patch大小（像素）
+    """
+
+    def __init__(self, mask_ratio: float = 0.75, patch_size: int = 16):
+        self.mask_ratio = mask_ratio
+        self.patch_size = patch_size
+
+    def __call__(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """生成遮盖mask
+
+        Args:
+            x: 输入图像 (B, C, H, W)
+
+        Returns:
+            masked_x: 遮盖后的图像 (B, C, H, W)
+            mask: 遮盖mask (B, num_patches)
+        """
+        B, C, H, W = x.shape
+        pH = H // self.patch_size
+        pW = W // self.patch_size
+        num_patches = pH * pW
+
+        # 生成随机mask
+        num_masked = int(num_patches * self.mask_ratio)
+        rand_indices = torch.rand(B, num_patches, device=x.device).argsort(dim=1)
+        mask = torch.zeros(B, num_patches, device=x.device)
+        mask[:, :num_masked] = 1
+        # 恢复原始顺序
+        mask = mask.scatter(1, rand_indices, mask)
+
+        # 将mask应用到图像上
+        mask_2d = mask.reshape(B, 1, pH, pW)
+        mask_2d = mask_2d.repeat_interleave(self.patch_size, dim=2)
+        mask_2d = mask_2d.repeat_interleave(self.patch_size, dim=3)
+
+        # 遮盖区域用0填充
+        masked_x = x * (1 - mask_2d)
+
+        return masked_x, mask
 
 
 class ProjectionHead(nn.Module):
@@ -64,6 +115,10 @@ class DINOModel(nn.Module):
     - Teacher处理全局视图，生成软标签
     - Student处理所有视图，学习预测Teacher的输出
     - Teacher通过EMA更新，缓慢跟踪Student
+
+    支持MAE预处理：
+    - Student看遮盖后的图像
+    - Teacher看原始（未遮盖）图像
     """
 
     def __init__(
@@ -72,16 +127,24 @@ class DINOModel(nn.Module):
         proj_dim: int = 384,
         hidden_dim: int = 2048,
         predictor_hidden_dim: int = 1024,
-        pretrained_backbone: bool = True
+        pretrained_backbone: bool = True,
+        local_weight_path: str = None,
+        center_momentum: float = 0.9,
+        use_mae: bool = True,
+        mae_mask_ratio: float = 0.75,
+        mae_patch_size: int = 16
     ):
         super().__init__()
 
         self.proj_dim = proj_dim
+        self.center_momentum = center_momentum
+        self.use_mae = use_mae
 
         # ========== Student ==========
         self.student_backbone = CNNBackbone(
             model_name=backbone_name,
-            pretrained=pretrained_backbone
+            pretrained=pretrained_backbone,
+            local_weight_path=local_weight_path
         )
         student_feat_dim = self.student_backbone.feature_dim
 
@@ -110,6 +173,13 @@ class DINOModel(nn.Module):
         # ========== Centering ==========
         self.register_buffer('center', torch.zeros(proj_dim))
 
+        # ========== MAE ==========
+        if use_mae:
+            self.mae_masker = MAEMaskGenerator(
+                mask_ratio=mae_mask_ratio,
+                patch_size=mae_patch_size
+            )
+
         # 统计信息
         total_params = sum(p.numel() for p in self.parameters())
         student_params = sum(p.numel() for p in self.student_backbone.parameters()) + \
@@ -118,6 +188,7 @@ class DINOModel(nn.Module):
         print(f"[DINOModel] 总参数量: {total_params/1e6:.2f}M")
         print(f"[DINOModel] Student参数量: {student_params/1e6:.2f}M")
         print(f"[DINOModel] 特征维度: {proj_dim}")
+        print(f"[DINOModel] MAE遮盖: {'启用' if use_mae else '禁用'}")
 
     @torch.no_grad()
     def update_teacher(self, momentum: float):
@@ -145,10 +216,13 @@ class DINOModel(nn.Module):
         """更新center
 
         Args:
-            teacher_output: Teacher的输出 (B, proj_dim)
+            teacher_output: Teacher的输出 (B, proj_dim) 或 (B, num_global, proj_dim)
         """
-        batch_center = teacher_output.mean(dim=0)
-        self.center = self.center * 0.9 + batch_center * 0.1
+        if teacher_output.dim() == 3:
+            batch_center = teacher_output.mean(dim=(0, 1))
+        else:
+            batch_center = teacher_output.mean(dim=0)
+        self.center = self.center * self.center_momentum + batch_center * (1 - self.center_momentum)
 
     def forward_student(self, x: torch.Tensor) -> torch.Tensor:
         """Student前向传播
@@ -207,7 +281,7 @@ class DINOModel(nn.Module):
         num_global = global_views.shape[1]
         num_local = local_views.shape[1]
 
-        # ========== Teacher处理全局视图 ==========
+        # ========== Teacher处理全局视图（未遮盖） ==========
         teacher_out_list = []
         for i in range(num_global):
             view = global_views[:, i]  # (B, 3, H, W)
@@ -223,15 +297,19 @@ class DINOModel(nn.Module):
         # ========== Student处理所有视图 ==========
         student_out_list = []
 
-        # 处理全局视图
+        # 处理全局视图（应用MAE遮盖）
         for i in range(num_global):
             view = global_views[:, i]
+            if self.use_mae and self.training:
+                view, _ = self.mae_masker(view)  # 应用遮盖
             student_out = self.forward_student(view)
             student_out_list.append(student_out)
 
-        # 处理局部视图
+        # 处理局部视图（应用MAE遮盖）
         for i in range(num_local):
             view = local_views[:, i]
+            if self.use_mae and self.training:
+                view, _ = self.mae_masker(view)  # 应用遮盖
             student_out = self.forward_student(view)
             student_out_list.append(student_out)
 
@@ -242,24 +320,30 @@ class DINOModel(nn.Module):
         student_out = F.softmax(student_out / student_temp, dim=-1)
 
         # ========== 计算损失 ==========
-        loss = self.compute_loss(student_out, teacher_out)
+        loss = self.compute_loss(student_out, teacher_out, student_temp, teacher_temp)
 
         # ========== 更新Teacher和Center ==========
         self.update_teacher(teacher_momentum)
-        self.update_center(teacher_out.mean(dim=(0, 1)))
+        self.update_center(teacher_out)
 
         return student_out, teacher_out, loss
 
     def compute_loss(
         self,
         student_out: torch.Tensor,
-        teacher_out: torch.Tensor
+        teacher_out: torch.Tensor,
+        student_temp: float = 0.1,
+        teacher_temp: float = 0.04
     ) -> torch.Tensor:
         """计算DINOv3自蒸馏损失
 
+        使用log_softmax保证数值稳定性
+
         Args:
-            student_out: (B, num_views, proj_dim)
-            teacher_out: (B, num_global, proj_dim)
+            student_out: (B, num_views, proj_dim) - 已softmax
+            teacher_out: (B, num_global, proj_dim) - 已softmax
+            student_temp: Student温度（用于log_softmax）
+            teacher_temp: Teacher温度（用于log_softmax）
 
         Returns:
             loss: 标量
@@ -274,9 +358,12 @@ class DINOModel(nn.Module):
         # 全局视图(Student) -> 全局视图(Teacher)
         for i in range(num_views):
             for j in range(num_global):
+                # 使用log保证数值稳定性
+                # student_out已经softmax过，直接log
+                log_student = torch.log(student_out[:, i] + 1e-8)
                 # Cross-entropy loss
                 loss = -torch.sum(
-                    teacher_out[:, j] * torch.log(student_out[:, i] + 1e-8),
+                    teacher_out[:, j] * log_student,
                     dim=-1
                 ).mean()
                 total_loss = total_loss + loss

@@ -161,3 +161,90 @@ def get_warmup_cosine_scheduler(
         total_epochs=total_epochs,
         min_lr=min_lr
     )
+
+
+class IterationLevelScheduler:
+    """Iteration级别的学习率调度器
+
+    支持按iteration进行warmup和cosine annealing，
+    比epoch级别更精细。
+
+    Args:
+        optimizer: 优化器
+        warmup_iters: 预热iteration数
+        total_iters: 总iteration数
+        min_lr: 最小学习率
+    """
+
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        warmup_iters: int = 1000,
+        total_iters: int = 100000,
+        min_lr: float = 1e-6
+    ):
+        self.optimizer = optimizer
+        self.warmup_iters = warmup_iters
+        self.total_iters = total_iters
+        self.min_lr = min_lr
+        self.current_iter = 0
+
+        # 保存初始学习率
+        self.base_lrs = [group['lr'] for group in optimizer.param_groups]
+
+    def step(self):
+        """更新学习率（每个iteration调用一次）"""
+        self.current_iter += 1
+
+        if self.current_iter <= self.warmup_iters:
+            # 线性warmup
+            scale = self.current_iter / self.warmup_iters
+        else:
+            # 余弦退火
+            progress = (self.current_iter - self.warmup_iters) / \
+                       (self.total_iters - self.warmup_iters)
+            scale = 0.5 * (1 + math.cos(math.pi * progress))
+
+        for param_group, base_lr in zip(self.optimizer.param_groups, self.base_lrs):
+            param_group['lr'] = max(self.min_lr, base_lr * scale)
+
+    def get_last_lr(self) -> list:
+        """获取当前学习率"""
+        return [group['lr'] for group in self.optimizer.param_groups]
+
+    def state_dict(self) -> dict:
+        """保存状态"""
+        return {
+            'current_iter': self.current_iter,
+            'base_lrs': self.base_lrs
+        }
+
+    def load_state_dict(self, state_dict: dict):
+        """加载状态"""
+        self.current_iter = state_dict['current_iter']
+        self.base_lrs = state_dict['base_lrs']
+
+
+def get_iteration_scheduler(
+    optimizer: torch.optim.Optimizer,
+    warmup_iters: int = 1000,
+    total_iters: int = 100000,
+    min_lr: float = 1e-6
+) -> IterationLevelScheduler:
+    """获取Iteration级别的学习率调度器
+
+    Args:
+        optimizer: 优化器
+        warmup_iters: 预热iteration数
+        total_iters: 总iteration数
+        min_lr: 最小学习率
+
+    Returns:
+        scheduler: 调度器实例
+    """
+    return IterationLevelScheduler(
+        optimizer,
+        warmup_iters=warmup_iters,
+        total_iters=total_iters,
+        min_lr=min_lr
+    )

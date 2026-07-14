@@ -161,7 +161,9 @@ class DINODataset(Dataset):
     def _is_flat_format(self, root: str) -> bool:
         """检测是否是扁平格式（图片直接在根目录下）"""
         # 检查是否有train子目录（Kaggle格式）
-        train_dir = os.path.join(root, 'train')
+
+        #train_dir = os.path.join(root, 'train')
+        train_dir = root
         if os.path.isdir(train_dir):
             # 检查train目录下是否有图片
             for file in os.listdir(train_dir):

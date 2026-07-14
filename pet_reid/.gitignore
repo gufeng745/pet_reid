@@ -1,0 +1,33 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Checkpoints and model weights (large binary files)
+*.pth
+*.pt
+*.bin
+*.onnx
+checkpoints/
+pre_weights/
+
+# Logs
+logs/
+*.log
+
+# Dataset and large data files
+*.zip
+reid_dataset/
+test_dataset/
+images/
+
+# Temporary files
+temp_*.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pet_process folder (separate project)
+../pet_process/

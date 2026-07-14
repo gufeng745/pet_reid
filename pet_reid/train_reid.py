@@ -179,7 +179,8 @@ def train_reid(args):
         use_se=config.use_se,
         use_bnneck=config.use_bnneck,
         se_reduction=config.se_reduction,
-        pretrained_dino_path=config.pretrained_dino
+        pretrained_dino_path=config.pretrained_dino,
+        backbone_weight_path=config.backbone_weight_path
     ).to(device)
 
     # ========== 创建损失函数 ==========
@@ -208,7 +209,7 @@ def train_reid(args):
     )
 
     # 混合精度训练
-    scaler = torch.amp.GradScaler('cuda') if config.use_amp and device.type == 'cuda' else None
+    scaler = torch.cuda.amp.GradScaler() if config.use_amp and device.type == 'cuda' else None
     if scaler:
         print("使用混合精度训练 (AMP)")
 
@@ -240,6 +241,8 @@ def train_reid(args):
 
         t0 = time.time()
 
+        nan_count = 0  # NaN批次计数
+
         for batch_idx, (images, labels) in enumerate(train_loader):
             images = images.to(device)
             labels = labels.to(device).long()
@@ -267,6 +270,15 @@ def train_reid(args):
                            config.lambda_contrastive * loss_contrastive +
                            config.lambda_ortho * loss_ortho)
 
+                # NaN检测：跳过这个batch
+                if torch.isnan(loss) or torch.isinf(loss):
+                    nan_count += 1
+                    print(f"  [警告] batch {batch_idx+1} 检测到 NaN/Inf loss，跳过")
+                    if nan_count > 10:
+                        print(f"  [错误] 连续NaN过多，停止训练")
+                        break
+                    continue
+
                 # 反向传播
                 optimizer.zero_grad()
                 scaler.scale(loss).backward()
@@ -290,6 +302,15 @@ def train_reid(args):
                        config.lambda_contrastive * loss_contrastive +
                        config.lambda_ortho * loss_ortho)
 
+                # NaN检测：跳过这个batch
+                if torch.isnan(loss) or torch.isinf(loss):
+                    nan_count += 1
+                    print(f"  [警告] batch {batch_idx+1} 检测到 NaN/Inf loss，跳过")
+                    if nan_count > 10:
+                        print(f"  [错误] 连续NaN过多，停止训练")
+                        break
+                    continue
+
                 optimizer.zero_grad()
                 loss.backward()
 
@@ -297,6 +318,9 @@ def train_reid(args):
                     torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
 
                 optimizer.step()
+
+            # NaN检测通过，重置计数
+            nan_count = 0
 
             # 统计
             epoch_loss += loss.item()
@@ -394,18 +418,26 @@ def validate(model, val_loader, config, device):
         images = images.to(device)
         labels = labels.to(device).long()
 
-        emb, id_logits = model(images)
+        with torch.amp.autocast('cuda') if device.type == 'cuda' else torch.no_grad():
+            emb, id_logits = model(images)
 
-        # 计算损失
-        loss_id = F.cross_entropy(id_logits, labels, label_smoothing=config.id_label_smoothing)
+        # 计算损失（float32保证精度）
+        loss_id = F.cross_entropy(id_logits.float(), labels, label_smoothing=config.id_label_smoothing)
         loss = config.lambda_id * loss_id
+
+        # NaN检测
+        if torch.isnan(loss):
+            continue
 
         total_loss += loss.item() * images.size(0)
         count += images.size(0)
 
         # 收集特征
-        all_features.append(emb.cpu())
+        all_features.append(emb.cpu().float())
         all_labels.append(labels.cpu())
+
+    if count == 0:
+        return float('inf'), 0.0
 
     # 计算Rank-1
     all_features = torch.cat(all_features, dim=0)

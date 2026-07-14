@@ -37,19 +37,21 @@ class ReIDModel(nn.Module):
         use_se: bool = True,
         use_bnneck: bool = True,
         se_reduction: int = 16,
-        pretrained_dino_path: Optional[str] = None
+        pretrained_dino_path: Optional[str] = None,
+        backbone_weight_path: Optional[str] = None
     ):
         """
         Args:
-            backbone_name: backbone模型名称
+            backbone_name: backbone 模型名称
             proj_dim: 投影维度
             num_classes: 身份类别数
-            pretrained_backbone: 是否使用ImageNet预训练
-            use_gem_pool: 是否使用GeM Pooling
-            use_se: 是否使用SE注意力
-            use_bnneck: 是否使用BNNeck
-            se_reduction: SE注意力降维比例
-            pretrained_dino_path: DINOv3预训练权重路径
+            pretrained_backbone: 是否使用 ImageNet 预训练
+            use_gem_pool: 是否使用 GeM Pooling
+            use_se: 是否使用 SE 注意力
+            use_bnneck: 是否使用 BNNeck
+            se_reduction: SE 注意力降维比例
+            pretrained_dino_path: DINOv3 预训练权重路径
+            backbone_weight_path: Backbone 预训练权重路径（.pth 或.safetensors）
         """
         super().__init__()
 
@@ -62,7 +64,8 @@ class ReIDModel(nn.Module):
         # ========== Backbone ==========
         self.backbone = CNNBackbone(
             model_name=backbone_name,
-            pretrained=pretrained_backbone
+            pretrained=pretrained_backbone,
+            local_weight_path=backbone_weight_path
         )
         # 使用forward_features的输出维度（特征图维度）
         feat_dim = self.backbone.feature_map_dim

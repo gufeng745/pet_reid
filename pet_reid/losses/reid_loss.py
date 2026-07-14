@@ -90,7 +90,7 @@ class SupervisedContrastiveLoss(nn.Module):
     def forward(self, features: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            features: (B, D) L2归一化特征
+            features: (B, D) L2 归一化特征
             labels: (B,) 标签 (long)
 
         Returns:
@@ -98,7 +98,7 @@ class SupervisedContrastiveLoss(nn.Module):
         """
         B = features.shape[0]
         if B < 2:
-            return torch.tensor(0.0, device=features.device)
+            return torch.tensor(0.0, device=features.device, requires_grad=True)
 
         # 余弦相似度矩阵
         sim_matrix = features @ features.T / self.temperature  # (B, B)
@@ -112,16 +112,24 @@ class SupervisedContrastiveLoss(nn.Module):
         # 排除自身对角线
         sim_matrix = sim_matrix.float().masked_fill(eye_mask, -1e4)
 
-        # 对于每个anchor，计算InfoNCE
-        exp_sim = torch.exp(sim_matrix)
+        # 数值稳定性：减去最大值后再 exp (log-sum-exp trick)
+        sim_max = sim_matrix.max(dim=1, keepdim=True)[0]
+        sim_shifted = sim_matrix - sim_max
+        exp_sim = torch.exp(sim_shifted)
+
+        # 对于每个 anchor，计算 InfoNCE
         pos_sim = (exp_sim * pos_mask).sum(dim=1)  # (B,)
         all_sim = exp_sim.sum(dim=1)  # (B,)
 
-        # 避免除零
-        pos_sim = pos_sim.clamp(min=1e-8)
-        all_sim = all_sim.clamp(min=1e-8)
+        # 避免除零和对数溢出
+        pos_sim = pos_sim.clamp(min=1e-10)
+        all_sim = all_sim.clamp(min=1e-10)
 
-        loss = -torch.log(pos_sim / all_sim).mean()
+        # 注意：log-sum-exp 技巧中 sim_max 在比值中已抵消，不需要加回来
+        # log(pos_sim / all_sim) = log(sum(exp(s_i - M) * pos_mask)) - log(sum(exp(s_i - M)))
+        #                        = log(sum(exp(s_i) * pos_mask)) - M - (log(sum(exp(s_i))) - M)
+        #                        = log(sum(exp(s_i) * pos_mask)) - log(sum(exp(s_i)))
+        loss = -(torch.log(pos_sim / all_sim)).mean()
         return loss
 
 
@@ -142,30 +150,42 @@ class FeatureOrthogonalityLoss(nn.Module):
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            features: (B, D) L2归一化的特征
+            features: (B, D) L2 归一化的特征
 
         Returns:
             loss: 标量
         """
         B, D = features.shape
         if B < 2:
-            return torch.tensor(0.0, device=features.device)
+            return torch.tensor(0.0, device=features.device, requires_grad=True)
 
         # 中心化
         features_centered = features - features.mean(dim=0, keepdim=True)
 
-        # 协方差矩阵: (D, D)
+        # 协方差矩阵：(D, D)
         cov = features_centered.T @ features_centered / (B - 1)
 
-        # 标准差
-        std = torch.sqrt(torch.diag(cov).clamp(min=1e-8))
+        # 标准差 - 使用较大的下限防止除零
+        diag_cov = torch.diag(cov)
+        # 检查是否有 NaN/Inf
+        if torch.isnan(diag_cov).any() or torch.isinf(diag_cov).any():
+            return torch.tensor(0.0, device=features.device, requires_grad=True)
 
-        # 相关系数矩阵
+        std = torch.sqrt(diag_cov.clamp(min=1e-4))
+
+        # 相关系数矩阵 - 使用安全的标准差
         corr = cov / (std.unsqueeze(0) * std.unsqueeze(1))
+
+        # 限制相关系数范围在 [-1, 1] 之间（数值误差可能导致超出）
+        corr = corr.clamp(-1, 1)
 
         # 只惩罚非对角线元素（即维度间的相关性）
         mask = ~torch.eye(D, dtype=torch.bool, device=features.device)
         loss = (corr[mask] ** 2).mean()
+
+        # 检查 NaN
+        if torch.isnan(loss) or torch.isinf(loss):
+            return torch.tensor(0.0, device=features.device, requires_grad=True)
 
         return loss
 

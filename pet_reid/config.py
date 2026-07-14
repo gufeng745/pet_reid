@@ -11,13 +11,17 @@ import os
 
 @dataclass
 class DINOConfig:
-    """DINOv3自监督预训练配置"""
+    """DINOv3 自监督预训练配置"""
 
     # ==================== 模型配置 ====================
     backbone: str = "mobilenetv3_large_100"
-    proj_dim: int = 512  # 改为512维，与Re-ID对齐
+    proj_dim: int = 512  # 改为 512 维，与 Re-ID 对齐
     hidden_dim: int = 2048
     predictor_hidden_dim: int = 1024
+    
+    # Backbone 预训练权重路径（服务器环境使用 pre_weights 文件夹）
+    # 支持 .pth 和 .safetensors 格式
+    backbone_weight_path: Optional[str] = "pre_weights/mobilenetv3_large_100.safetensors"
 
     # ==================== 数据增强配置 ====================
     global_crop_size: int = 224
@@ -51,6 +55,12 @@ class DINOConfig:
     # Centering
     center_momentum: float = 0.9
 
+    # ==================== MAE 预处理配置 ====================
+    use_mae_masking: bool = True
+    mae_mask_ratio: float = 0.75  # 遮盖比例
+    mae_mask_patch_size: int = 16  # 遮盖patch大小
+    mae_teacher_unmasked: bool = True  # Teacher只看未遮盖区域
+
     # ==================== 其他配置 ====================
     seed: int = 42
     use_amp: bool = True
@@ -71,12 +81,16 @@ class DINOConfig:
 
 @dataclass
 class ReIDConfig:
-    """Re-ID监督微调配置"""
+    """Re-ID 监督微调配置"""
 
     # ==================== 模型配置 ====================
     backbone: str = "mobilenetv3_large_100"
     proj_dim: int = 512
     num_classes: int = 82  # 将根据数据集自动设置
+    
+    # Backbone 预训练权重路径（服务器环境使用 pre_weights 文件夹）
+    # 支持 .pth 和 .safetensors 格式
+    backbone_weight_path: Optional[str] = "pre_weights/mobilenetv3_large_100.safetensors"
 
     # 模型结构
     use_gem_pool: bool = True
@@ -85,6 +99,7 @@ class ReIDConfig:
     se_reduction: int = 16
 
     # ==================== 数据配置 ====================
+    data_root: str = "../pet_rec/reid_dataset"  # 数据集根路径
     image_size: int = 224
     val_ratio: float = 0.1
     min_images_per_id: int = 3

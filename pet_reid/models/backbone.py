@@ -1,11 +1,13 @@
 """
 CNN Backbone 模块
 
-支持多种CNN架构：MobileNetV2, MobileNetV3, EfficientNet等
+支持多种 CNN 架构：MobileNetV2, MobileNetV3, EfficientNet 等
+支持 .pth 和 .safetensors 格式的权重加载
 """
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import timm
 from typing import Optional, Tuple
 import os
@@ -52,9 +54,9 @@ class CNNBackbone(nn.Module):
         """
         Args:
             model_name: 模型名称
-            pretrained: 是否使用ImageNet预训练权重
-            num_classes: 分类数（0表示只提取特征）
-            local_weight_path: 本地权重路径（优先于pretrained）
+            pretrained: 是否使用 ImageNet 预训练权重
+            num_classes: 分类数（0 表示只提取特征）
+            local_weight_path: 本地权重路径（支持 .pth 和 .safetensors 格式）
         """
         super().__init__()
 
@@ -62,20 +64,45 @@ class CNNBackbone(nn.Module):
         self.feature_dim = self.FEATURE_DIMS.get(model_name, 1280)
         self.feature_map_dim = self.FEATURE_MAP_DIMS.get(model_name, 1280)
 
-        # 创建模型
+        # 先创建模型（不加载权重）
+        self.backbone = timm.create_model(model_name, pretrained=False, num_classes=num_classes)
+
+        # 加载权重
         if local_weight_path and os.path.exists(local_weight_path):
-            print(f"[Backbone] 从本地加载权重: {local_weight_path}")
-            self.backbone = timm.create_model(model_name, pretrained=False, num_classes=num_classes)
-            state_dict = torch.load(local_weight_path, map_location='cpu')
-            # 移除可能的前缀
-            state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+            print(f"[Backbone] 从本地加载权重：{local_weight_path}")
+            state_dict = self._load_weights(local_weight_path)
             self.backbone.load_state_dict(state_dict, strict=False)
         elif pretrained:
-            print(f"[Backbone] 使用ImageNet预训练权重: {model_name}")
+            print(f"[Backbone] 使用 ImageNet 预训练权重：{model_name}")
             self.backbone = timm.create_model(model_name, pretrained=True, num_classes=num_classes)
         else:
-            print(f"[Backbone] 随机初始化: {model_name}")
-            self.backbone = timm.create_model(model_name, pretrained=False, num_classes=num_classes)
+            print(f"[Backbone] 随机初始化：{model_name}")
+
+    def _load_weights(self, path: str) -> dict:
+        """
+        加载权重文件（支持 .pth 和 .safetensors 格式）
+        
+        Args:
+            path: 权重文件路径
+            
+        Returns:
+            state_dict: 模型状态字典
+        """
+        if path.endswith('.safetensors'):
+            try:
+                from safetensors.torch import load_file
+                state_dict = load_file(path, device='cpu')
+                print(f"[Backbone] 使用 safetensors 格式加载权重")
+                return state_dict
+            except ImportError:
+                print("[Backbone] 错误：safetensors 未安装，请运行：pip install safetensors")
+                raise
+        else:
+            # 传统的 .pth 格式
+            state_dict = torch.load(path, map_location='cpu', weights_only=True)
+            # 移除可能的前缀
+            state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+            return state_dict
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -125,8 +152,13 @@ class GeMPooling(nn.Module):
 
     def __init__(self, p: float = 3.0, eps: float = 1e-6):
         super().__init__()
-        self.p = nn.Parameter(torch.ones(1) * p)
+        # 使用 softplus 确保 p 始终为正数，避免数值不稳定
+        self.p = nn.Parameter(torch.ones(1) * torch.log(torch.tensor(p - 1.0)))
         self.eps = eps
+
+    def _get_p(self) -> torch.Tensor:
+        """获取 p 值，确保 1 <= p <= 10（防止溢出）"""
+        return F.softplus(self.p).clamp(max=9.0) + 1.0
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -136,10 +168,16 @@ class GeMPooling(nn.Module):
         Returns:
             pooled: (B, C) 池化后的特征
         """
-        return nn.functional.avg_pool2d(
-            x.clamp(min=self.eps).pow(self.p),
+        p = self._get_p()
+        # 确保输入为非负数（防止负数的非整数次幂产生NaN）
+        x_clamped = x.clamp(min=self.eps)
+        # 计算 GeM 池化
+        pooled = F.avg_pool2d(
+            x_clamped.pow(p),
             kernel_size=x.size()[2:]
-        ).pow(1. / self.p)
+        )
+        # 避免除以 0，p 也 clamp 到合理范围
+        return pooled.pow(1.0 / p.clamp(min=1.0, max=10.0))
 
 
 class SEBlock(nn.Module):
