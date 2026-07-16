@@ -26,14 +26,15 @@ def main():
     print("=" * 60)
 
     # 检查datasets文件夹
-    data_root = '../pet_rec/datasets'
+    data_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'datasets', 'cat_dog_attr')
     if not os.path.exists(data_root):
         print(f"错误：datasets文件夹不存在: {data_root}")
         print("请确保路径正确")
         return
 
     # 统计图片数量
-    train_dir = os.path.join(data_root, 'train')
+    # train_dir = os.path.join(data_root, 'train')
+    train_dir = data_root
     if os.path.isdir(train_dir):
         num_images = len([f for f in os.listdir(train_dir)
                         if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
@@ -60,6 +61,8 @@ def main():
                        help='投影维度（输出维度）')
     parser.add_argument('--hidden_dim', type=int, default=2048,
                        help='隐藏层维度')
+    parser.add_argument('--backbone_weight_path', type=str, default='pre_weights/mobilenetv3_large_100.safetensors',
+                       help='backbone 预训练权重路径 (safetensors)')
 
     # 训练
     parser.add_argument('--epochs', type=int, default=200,
@@ -79,15 +82,20 @@ def main():
     parser.add_argument('--student_temp', type=float, default=0.1,
                        help='Student温度')
 
+    # MAE
+    parser.add_argument('--use_mae_masking', action='store_true', default=True)
+    parser.add_argument('--no_mae_masking', dest='use_mae_masking', action='store_false')
+    parser.add_argument('--mae_mask_ratio', type=float, default=0.75)
+    parser.add_argument('--mae_mask_patch_size', type=int, default=16)
+
+    # 恢复训练
+    parser.add_argument('--resume', type=str, default=None, help='恢复训练的checkpoint路径')
+
     # 其他
-    parser.add_argument('--seed', type=int, default=42,
-                       help='随机种子')
-    parser.add_argument('--num_workers', type=int, default=4,
-                       help='数据加载线程数')
-    parser.add_argument('--save_interval', type=int, default=20,
-                       help='保存间隔')
-    parser.add_argument('--log_interval', type=int, default=10,
-                       help='日志间隔')
+    parser.add_argument('--seed', type=int, default=42, help='随机种子')
+    parser.add_argument('--num_workers', type=int, default=4, help='数据加载线程数')
+    parser.add_argument('--save_interval', type=int, default=20, help='保存间隔')
+    parser.add_argument('--log_interval', type=int, default=10, help='日志间隔')
 
     args = parser.parse_args()
 

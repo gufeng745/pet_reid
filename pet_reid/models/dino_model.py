@@ -282,17 +282,17 @@ class DINOModel(nn.Module):
         num_local = local_views.shape[1]
 
         # ========== Teacher处理全局视图（未遮盖） ==========
-        teacher_out_list = []
+        teacher_raw_list = []
         for i in range(num_global):
             view = global_views[:, i]  # (B, 3, H, W)
-            teacher_out = self.forward_teacher(view)  # (B, proj_dim)
-            teacher_out_list.append(teacher_out)
+            teacher_out = self.forward_teacher(view)  # (B, proj_dim) — 已减去center
+            teacher_raw_list.append(teacher_out)
 
-        # 合并Teacher输出
-        teacher_out = torch.stack(teacher_out_list, dim=1)  # (B, num_global, proj_dim)
+        # 合并Teacher原始输出（用于计算损失和更新center）
+        teacher_raw = torch.stack(teacher_raw_list, dim=1)  # (B, num_global, proj_dim)
 
-        # Sharpening (Teacher)
-        teacher_out = F.softmax(teacher_out / teacher_temp, dim=-1)
+        # Sharpening (Teacher) — 只对损失计算做softmax
+        teacher_out = F.softmax(teacher_raw / teacher_temp, dim=-1)
 
         # ========== Student处理所有视图 ==========
         student_out_list = []
@@ -305,65 +305,62 @@ class DINOModel(nn.Module):
             student_out = self.forward_student(view)
             student_out_list.append(student_out)
 
-        # 处理局部视图（应用MAE遮盖）
+        # 处理局部视图（不应用MAE遮盖，局部视图本身已经很小）
         for i in range(num_local):
             view = local_views[:, i]
-            if self.use_mae and self.training:
-                view, _ = self.mae_masker(view)  # 应用遮盖
             student_out = self.forward_student(view)
             student_out_list.append(student_out)
 
-        # 合并Student输出
-        student_out = torch.stack(student_out_list, dim=1)  # (B, num_views, proj_dim)
-
-        # Sharpening (Student)
-        student_out = F.softmax(student_out / student_temp, dim=-1)
+        # 合并Student原始输出
+        student_logits = torch.stack(student_out_list, dim=1)  # (B, num_views, proj_dim)
 
         # ========== 计算损失 ==========
-        loss = self.compute_loss(student_out, teacher_out, student_temp, teacher_temp)
+        loss = self.compute_loss(student_logits, teacher_raw, student_temp, teacher_temp)
 
         # ========== 更新Teacher和Center ==========
         self.update_teacher(teacher_momentum)
-        self.update_center(teacher_out)
+        # Center使用Teacher的原始投影输出更新（softmax之前、centering之后的特征空间）
+        self.update_center(teacher_raw)
+
+        # 返回softmax版本用于日志/监控
+        student_out = F.softmax(student_logits / student_temp, dim=-1)
 
         return student_out, teacher_out, loss
 
     def compute_loss(
         self,
-        student_out: torch.Tensor,
-        teacher_out: torch.Tensor,
+        student_logits: torch.Tensor,
+        teacher_logits: torch.Tensor,
         student_temp: float = 0.1,
         teacher_temp: float = 0.04
     ) -> torch.Tensor:
         """计算DINOv3自蒸馏损失
 
-        使用log_softmax保证数值稳定性
-
         Args:
-            student_out: (B, num_views, proj_dim) - 已softmax
-            teacher_out: (B, num_global, proj_dim) - 已softmax
-            student_temp: Student温度（用于log_softmax）
-            teacher_temp: Teacher温度（用于log_softmax）
+            student_logits: (B, num_views, proj_dim) - Student原始logits（未经softmax）
+            teacher_logits: (B, num_global, proj_dim) - Teacher原始logits（已centering，未经softmax）
+            student_temp: Student温度
+            teacher_temp: Teacher温度
 
         Returns:
             loss: 标量
         """
-        B, num_views, D = student_out.shape
-        _, num_global, _ = teacher_out.shape
+        B, num_views, D = student_logits.shape
+        _, num_global, _ = teacher_logits.shape
 
         total_loss = 0.0
         count = 0
 
-        # 局部视图(Student) -> 全局视图(Teacher)
-        # 全局视图(Student) -> 全局视图(Teacher)
+        # Teacher: softmax sharpening（生成软标签）
+        teacher_soft = F.softmax(teacher_logits / teacher_temp, dim=-1)  # (B, num_global, D)
+
         for i in range(num_views):
             for j in range(num_global):
-                # 使用log保证数值稳定性
-                # student_out已经softmax过，直接log
-                log_student = torch.log(student_out[:, i] + 1e-8)
-                # Cross-entropy loss
+                # Student: log_softmax（数值稳定）
+                log_student = F.log_softmax(student_logits[:, i] / student_temp, dim=-1)
+                # Cross-entropy: H(teacher, student)
                 loss = -torch.sum(
-                    teacher_out[:, j] * log_student,
+                    teacher_soft[:, j] * log_student,
                     dim=-1
                 ).mean()
                 total_loss = total_loss + loss
